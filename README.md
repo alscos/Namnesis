@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="web/static/img/logo.svg" alt="Namnesis UI" width="140"/>
+</p>
+
 # Namnesis UI Gateway
 
 Namnesis is a lightweight **web UI and HTTP gateway** for controlling **Stompbox** (by Mike Oliphant) via its TCP control protocol.
