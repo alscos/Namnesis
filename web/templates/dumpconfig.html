@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Dump Config</title>
+    <style>
+      body { font-family: sans-serif; margin: 16px; }
+      pre { white-space: pre; overflow: auto; border: 1px solid #ddd; padding: 12px; }
+      .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; }
+      button { padding: 6px 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <button id="refresh">Refresh</button>
+      <label><input type="checkbox" id="wrap"> Wrap</label>
+      <a href="/api/dumpconfig" target="_blank">Raw</a>
+    </div>
+
+    <pre id="out">(loading...)</pre>
+
+    <script>
+      const out = document.getElementById('out');
+      const wrap = document.getElementById('wrap');
+
+      function applyWrap() {
+        out.style.whiteSpace = wrap.checked ? 'pre-wrap' : 'pre';
+      }
+
+      async function load() {
+        out.textContent = '(loading...)';
+        try {
+          const res = await fetch('/api/dumpconfig', { cache: 'no-store' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          out.textContent = await res.text();
+        } catch (e) {
+          out.textContent = `Error: ${e.message}`;
+        }
+      }
+
+      document.getElementById('refresh').addEventListener('click', load);
+      wrap.addEventListener('change', applyWrap);
+
+      applyWrap();
+      load();
+    </script>
+  </body>
+</html>

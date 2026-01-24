@@ -1,0 +1,237 @@
+:root {
+  --bg: #ffffff;
+  --text: #111;
+  --muted: #666;
+  --border: #d0d0d0;
+  --panel: #fafafa;
+  --error-bg: #fff5f5;
+  --error-border: #f0b4b4;
+}
+
+body {
+  margin: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.actions a {
+  color: #1f3a93;
+  text-decoration: none;
+}
+
+.actions a:hover {
+  text-decoration: underline;
+}
+
+.wrap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.error {
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.hint {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.dump {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px;
+  border-radius: 10px;
+
+  /* The critical part: faithful display, no fake “trimming” */
+  white-space: pre;
+  overflow: auto;
+  max-height: 75vh;
+
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Optional: toggle wrap */
+.dump.wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.badge {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.lane {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 70px;
+  min-width: 220px;
+}
+
+.lane h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.tile {
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.muted {
+  color: #666;
+  font-size: 12px;
+  margin-bottom: 8px;
+  margin-left: 5px;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #111;
+  color: #eee;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.error {
+  border-color: #d33;
+  background: #fff5f5;
+}
+
+select {
+  padding: 6px 8px;
+}
+
+/* Plugin pill layout */
+.pill {
+  display: block;              /* not fixed-height; it grows */
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pill .pill-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pill .pill-title {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.pill .pill-state {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.25);
+  background: rgba(255,255,255,0.35);
+  white-space: nowrap;
+}
+
+.pill .pill-state.on {
+  background: rgba(255,255,255,0.55);
+}
+
+.pill .pill-body {
+  display: grid;
+  gap: 4px;                    /* “breathing” between lines */
+  line-height: 1.35;
+  font-size: 12px;
+}
+
+.pill .kv {
+  display: flex;
+  gap: 8px;
+}
+
+.pill .k {
+  font-weight: 700;            /* title of value in strong */
+}
+
+.pill .v {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.95;
+}
+
+/* Optional: make OFF slightly dimmer */
+.pill.is-off {
+  filter: saturate(0.9);
+  opacity: 0.92;
+}
+.lane .pill {
+  margin-bottom: 12px;
+}
+.lane .pill:last-child {
+  margin-bottom: 0;
+}
+header img.logo {
+  height: 140px;
+  display: block;
+}
