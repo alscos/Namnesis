@@ -68,6 +68,8 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Get("/ui", s.handleUIPage)
 	r.Post("/api/preset/load", s.handlePresetLoad)
 	r.Get("/api/debug/config-parsed", s.handleConfigParsedDebug)
+	r.Post("/api/param/file", s.handleSetFileParam)
+
 
 	// HTML page
 	r.Get("/dumpconfig", s.handleDumpConfigPage)
