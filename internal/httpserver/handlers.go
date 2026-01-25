@@ -116,6 +116,93 @@ type stateResponse struct {
 type presetLoadRequest struct {
     Name string `json:"name"`
 }
+type setFileParamRequest struct {
+	Plugin string `json:"plugin"`
+	Param  string `json:"param"`
+	Value  string `json:"value"`
+}
+func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
+	var req setFileParamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	if req.Plugin == "" || req.Param == "" || req.Value == "" {
+		http.Error(w, "missing fields: plugin, param, value are required", http.StatusBadRequest)
+		return
+	}
+
+	// 1) Validate against DumpConfig-parsed (authoritative config metadata)
+	raw, err := s.sb.DumpConfig()
+	if err != nil {
+		http.Error(w, "dumpconfig error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	cfg, err := stompbox.ParseDumpConfig(raw)
+	if err != nil {
+		http.Error(w, "parse dumpconfig error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	p, ok := cfg.Plugins[req.Plugin]
+	if !ok {
+		http.Error(w, "unknown plugin: "+req.Plugin, http.StatusBadRequest)
+		return
+	}
+	paramDef, ok := p.Params[req.Param]
+	if !ok {
+		http.Error(w, "unknown param for plugin: "+req.Plugin+"."+req.Param, http.StatusBadRequest)
+		return
+	}
+	if paramDef.Type != "File" {
+		http.Error(w, "param is not a File type: "+req.Plugin+"."+req.Param, http.StatusBadRequest)
+		return
+	}
+
+	// If we have a file tree for this param, ensure the value is valid.
+	// (Your ParseDumpConfig currently builds FileTrees; if it doesn’t for some params yet, we allow setting anyway.)
+	// If we have a file tree for this param, ensure the value is valid.
+	if p.FileTrees != nil {
+		if ft, ok := p.FileTrees[req.Param]; ok && ft != nil {
+			if !fileTreeContains(ft, req.Value) {
+				http.Error(w, "value not present in file tree: "+req.Value, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
+
+	// 2) Apply to running Stompbox
+	if err := s.sb.SetParam(req.Plugin, req.Param, req.Value); err != nil {
+		http.Error(w, "setparam error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// 3) Return OK + optional refreshed program (useful for UI to confirm)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":     true,
+		"plugin": req.Plugin,
+		"param":  req.Param,
+		"value":  req.Value,
+	})
+}
+
+// helper
+func fileTreeContains(ft *stompbox.FileTreeDef, value string) bool {
+    for _, it := range ft.Items {
+        if it == value {
+            return true
+        }
+    }
+    for _, opt := range ft.Options { // if Options exists in your types.go
+        if opt.Value == value {
+            return true
+        }
+    }
+    return false
+}
+
 
 func (s *Server) handlePresetLoad(w http.ResponseWriter, r *http.Request) {
     var req presetLoadRequest
