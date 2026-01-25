@@ -120,7 +120,7 @@ func (c *Client) DumpProgram() (string, error) {
 		return false
 	})
 }
-// add this method to internal/stompbox/client.go
+
 func (c *Client) SendCommand(cmd string) (string, error) {
 	// Ensure CRLF terminator (stompbox protocol expects \r\n)
 	if !strings.HasSuffix(cmd, "\r\n") {
@@ -138,11 +138,14 @@ func (c *Client) SendCommand(cmd string) (string, error) {
 }
 
 
-
 // ListPresets reads until:
 //   Ok
 func (c *Client) ListPresets() (string, error) {
 	return c.doUntil("List Presets\r\n", func(line string, st *termState) bool {
 		return line == "Ok"
 	})
+}
+func (c *Client) SetParam(plugin, param, value string) error {
+	_, err := c.SendCommand("SetParam " + plugin + " " + param + " " + value)
+	return err
 }
