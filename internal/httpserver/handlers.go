@@ -50,6 +50,24 @@ func (s *Server) handleDumpConfigPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+func (s *Server) handleConfigParsedDebug(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.sb.DumpConfig()
+	if err != nil {
+		http.Error(w, "dumpconfig error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	parsed, err := stompbox.ParseDumpConfig(raw)
+	if err != nil {
+		http.Error(w, "parse error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(parsed)
+}
 
 func (s *Server) handleProgramParsedDebug(w http.ResponseWriter, r *http.Request) {
 	raw, err := s.sb.DumpProgram()
