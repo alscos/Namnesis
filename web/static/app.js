@@ -32,6 +32,41 @@
     d.textContent = text;
     return d;
   }
+let isProgrammaticModelUpdate = false;
+
+async function setFileParam(plugin, param, value) {
+  elStatus.textContent = 'setting...';
+
+  const res = await fetch('/api/param/file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plugin, param, value })
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    elStatus.textContent = 'error';
+    elDebug.innerHTML = '<pre>' + t + '</pre>';
+    throw new Error('setFileParam failed: ' + res.status);
+  }
+
+  const data = await res.json().catch(() => ({}));
+  elStatus.textContent = 'ok';
+  return data;
+}
+
+async function refreshAfterFileParamChange(plugin, param, expectedValue) {
+  for (let i = 0; i < 12; i++) {
+    const program = await refreshUI();
+
+    const got = program?.params?.[plugin]?.[param];
+    if (got === expectedValue) return;
+
+    await new Promise(r => setTimeout(r, 120));
+  }
+
+  // If it never catches up, don’t block; just leave UI refreshed.
+}
 
   function renderErrorBox(title, err) {
     const box = document.createElement('div');
@@ -158,59 +193,75 @@ async function refreshAfterPresetChange(expectedName) {
     return trees;
   }
   function parseCurrentFileParam(programRaw, pluginName, paramName) {
-    const lines = programRaw.split(/\r?\n/);
-    for (const line of lines) {
-      const l = line.trim();
-      if (!l.startsWith('SetParam ')) continue;
-  
-      // SetParam <Plugin> <Param> <Value...>
-      const parts = l.split(/\s+/);
-      if (parts.length < 4) continue;
-  
-      if (parts[1] !== pluginName) continue;
-      if (parts[2] !== paramName) continue;
-  
-      // Value is everything after the first 3 tokens
-      let val = l.split(/\s+/).slice(3).join(' ');
-      val = val.trim();
-  
-      // If quoted, remove surrounding quotes only
-      if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
-        val = val.slice(1, -1);
-      }
-      return val || null;
-    }
-    return null;
-  }
-  function buildDropdown(label, options, selectedValue) {
-    const wrap = document.createElement('div');
-    wrap.className = 'selector';
-  
-    const lab = document.createElement('div');
-    lab.className = 'muted';
-    lab.textContent = label;
-    wrap.appendChild(lab);
-  
-    const sel = document.createElement('select');
-  
-    const ph = document.createElement('option');
-    ph.value = '';
-    ph.textContent = '---';
-    sel.appendChild(ph);
-  
-    for (const opt of options) {
-      const o = document.createElement('option');
-      o.value = opt;
-      o.textContent = opt;
-      sel.appendChild(o);
-    }
-  
-    const initial = (selectedValue && options.includes(selectedValue)) ? selectedValue : '';
-    sel.value = initial;
+  let found = null;
+  const lines = programRaw.split(/\r?\n/);
 
-    wrap.appendChild(sel);
-    return wrap;
+  for (const line of lines) {
+    const l = line.trim();
+    if (!l.startsWith('SetParam ')) continue;
+
+    const parts = l.split(/\s+/);
+    if (parts.length < 4) continue;
+    if (parts[1] !== pluginName) continue;
+    if (parts[2] !== paramName) continue;
+
+    let val = l.split(/\s+/).slice(3).join(' ').trim();
+    if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) val = val.slice(1, -1);
+
+    found = val || null; // keep updating; last match wins
   }
+
+  return found;
+}
+
+  function buildDropdown(label, options, selectedValue, onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'selector';
+
+  const lab = document.createElement('div');
+  lab.className = 'muted';
+  lab.textContent = label;
+  wrap.appendChild(lab);
+
+  const sel = document.createElement('select');
+
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = '---';
+  sel.appendChild(ph);
+
+  for (const opt of options) {
+    const o = document.createElement('option');
+    o.value = opt;
+    o.textContent = opt;
+    sel.appendChild(o);
+  }
+
+  const initial = (selectedValue && options.includes(selectedValue)) ? selectedValue : '';
+  isProgrammaticModelUpdate = true;
+  sel.value = initial;
+  isProgrammaticModelUpdate = false;
+
+  if (typeof onChange === 'function') {
+    sel.addEventListener('change', async (e) => {
+      if (isProgrammaticModelUpdate) return;
+
+      const v = e.target.value;
+      if (!v) return;
+
+      try {
+        await onChange(v);
+      } catch (err) {
+        // setFileParam already writes debug/status; keep this minimal
+        console.error(err);
+      }
+    });
+  }
+
+  wrap.appendChild(sel);
+  return wrap;
+}
+
   
   function pluginTile(label, meta) {
   const el = tile(label);
@@ -726,14 +777,27 @@ async function refreshUI() {
     setPresetDropdown(presetList, program.preset);
 
     // NAM/Cab read-only selectors (just display)
-    const namCurrent = data?.program?.error ? null : parseCurrentFileParam(data?.program?.raw || '', 'NAM', 'Model');
-    const cabCurrent = data?.program?.error ? null : parseCurrentFileParam(data?.program?.raw || '', 'Cabinet', 'Impulse');
+    const namCurrent = program?.params?.NAM?.Model ?? null;
+    const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
     const namOpts = trees['NAM.Model'] || [];
     const cabOpts = trees['Cabinet.Impulse'] || [];
 
     elModelSelectors.innerHTML = '';
-    elModelSelectors.appendChild(buildDropdown('NAM Model', namOpts, namCurrent));
-    elModelSelectors.appendChild(buildDropdown('Cab IR', cabOpts, cabCurrent));
+
+    elModelSelectors.appendChild(
+      buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
+        await setFileParam('NAM', 'Model', v);
+        await refreshAfterFileParamChange('NAM', 'Model', v);
+      })
+    );
+
+    elModelSelectors.appendChild(
+      buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
+        await setFileParam('Cabinet', 'Impulse', v);
+        await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
+      })
+    );
+
 
     // Render lanes + slots ONCE (and do not clear after)
     elLanes.innerHTML = '';
