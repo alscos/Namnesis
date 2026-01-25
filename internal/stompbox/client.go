@@ -32,6 +32,10 @@ func (c *Client) LoadPreset(name string) error {
     _, err := c.SendCommand("LoadPreset " + name)
     return err
 }
+func (c *Client) SavePreset(name string) error {
+	_, err := c.SendCommand("SavePreset " + name)
+	return err
+}
 
 // doUntil sends a single command (must include \r\n) and reads lines until stop(line,state) returns true.
 // It refreshes read deadlines per read so large dumps don’t time out mid-stream.

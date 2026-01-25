@@ -6,7 +6,7 @@
   const elLanes = document.getElementById('lanesRow');
   const elDebug = document.getElementById('debug');
   const elModelSelectors = document.getElementById('modelSelectors');
-
+  const savePresetBtn = document.getElementById("savePresetBtn");
 
 
   
@@ -755,6 +755,42 @@ function renderSlotsFromDumpProgram(elSlots, program) {
     elSlots.appendChild(tile(`${slot} → ${plugin}`));
   }
 }
+
+
+
+if (savePresetBtn) {
+  savePresetBtn.addEventListener("click", async () => {
+    // save into the currently selected preset name (best UX, deterministic)
+    const preset = presetSelect?.value || "";
+
+    try {
+      savePresetBtn.disabled = true;
+
+      const res = await fetch("/api/preset/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: preset }), // or {} to force "ActivePreset"
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+
+      // Optional: refresh state so UI stays consistent
+      await refreshUI();
+      setStatus(`Saved ${data.preset || preset}`, true);
+
+    } catch (err) {
+      console.error(err);
+      setStatus(`Save failed: ${err.message || err}`, false);
+    } finally {
+      savePresetBtn.disabled = false;
+    }
+  });
+}
+
 
 async function refreshUI() {
   try {
