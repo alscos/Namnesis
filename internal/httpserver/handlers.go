@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"namnesis-ui-gateway/internal/stompbox"
 )
 
 func (s *Server) handleDumpConfigRaw(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +51,24 @@ func (s *Server) handleDumpConfigPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleProgramParsedDebug(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.sb.DumpProgram()
+	if err != nil {
+		http.Error(w, "program error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	parsed, err := stompbox.ParseDumpProgram(raw)
+	if err != nil {
+		http.Error(w, "parse error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(parsed)
+}
 
 
 type stateResponse struct {
