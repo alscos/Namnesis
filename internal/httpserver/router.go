@@ -62,6 +62,7 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	// Raw API endpoints (plain text)
 	r.Get("/api/dumpconfig", s.handleDumpConfigRaw)
 	r.Get("/api/program", s.handleProgramRaw)
+	r.Get("/api/debug/program-parsed", s.handleProgramParsedDebug)
 	r.Get("/api/presets", s.handlePresetsRaw)
 	r.Get("/api/state", s.handleState)
 	r.Get("/ui", s.handleUIPage)
