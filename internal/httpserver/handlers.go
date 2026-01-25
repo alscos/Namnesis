@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+	"strings"
 
 	"namnesis-ui-gateway/internal/stompbox"
 )
@@ -227,6 +228,52 @@ func (s *Server) handlePresetLoad(w http.ResponseWriter, r *http.Request) {
         "name": req.Name,
     })
 }
+type savePresetRequest struct {
+    Name string `json:"name"`
+}
+
+func (s *Server) handlePresetSave(w http.ResponseWriter, r *http.Request) {
+    var req savePresetRequest
+    _ = json.NewDecoder(r.Body).Decode(&req) // allow empty body
+
+    name := strings.TrimSpace(req.Name)
+
+    // If no name provided, save "current preset" (from DumpProgram parse)
+    if name == "" {
+        raw, err := s.sb.DumpProgram()
+        if err != nil {
+            http.Error(w, "DumpProgram failed: "+err.Error(), http.StatusBadGateway)
+            return
+        }
+
+        parsed, err := stompbox.ParseDumpProgram(raw)
+        if err != nil {
+            http.Error(w, "ParseDumpProgram failed: "+err.Error(), http.StatusInternalServerError)
+            return
+        }
+
+        name = strings.TrimSpace(parsed.ActivePreset)
+        if name == "" {
+            http.Error(w, "cannot save: ActivePreset is empty", http.StatusBadRequest)
+            return
+        }
+    }
+
+    if err := s.sb.SavePreset(name); err != nil {
+        http.Error(w, "SavePreset failed: "+err.Error(), http.StatusBadGateway)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json; charset=utf-8")
+    _ = json.NewEncoder(w).Encode(map[string]any{
+        "ok":     true,
+        "preset": name,
+    })
+}
+
+
+
+
 type loadPresetRequest struct {
 	Name string `json:"name"`
 }
