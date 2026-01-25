@@ -1,4 +1,10 @@
-
-# macOS
-.DS_Store
+# macOS / AppleDouble
 ._*
+.DS_Store
+
+# build artifacts
+namnesis-ui-gateway
+*.exe
+*.out
+*.log
+
