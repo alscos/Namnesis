@@ -1,108 +1,102 @@
+<!doctype html>
+<html lang="en">
 <head>
-  <!-- Charset -->
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>NAMNESIS UI</title>
 
-  <!-- Mobile viewport: critical for horizontal lane paging -->
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
-
-  <!-- Title -->
-  <title>NAMNESIS</title>
-
-  <!-- Compiled Tailwind CSS (static, no runtime dependency) -->
+  <!-- Tailwind compiled output -->
   <link rel="stylesheet" href="/static/tailwind.css" />
-
-  <!-- Optional: small performance hint (safe even if unused) -->
-  <meta name="color-scheme" content="dark light" />
+  <link rel="stylesheet" href="/static/app.css" />
 </head>
 
-<body class="h-dvh overflow-hidden bg-neutral-950 text-neutral-100">
-  <!-- Header -->
-  <header class="h-[4rem] border-b border-neutral-800 px-4 flex items-center gap-4">
+<body class="min-h-dvh bg-neutral-950 text-neutral-100">
+  <!-- Page container -->
+  <div class="mx-auto max-w-[1400px] px-4 py-4 md:px-6 md:py-6">
 
-    <img src="/static/img/logo.svg" alt="Namnesis" class="h-12 w-auto" />
+    <!-- Header -->
+    <header class="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
+      <!-- Logo -->
+      <div class="flex items-center gap-3">
+        <img
+          src="/static/img/logo.svg"
+          alt="Namnesis"
+          class="h-14 w-auto md:h-16"
+          height="64"
+        />
 
-    <div class="flex items-center gap-2">
-      <div class="px-2 py-1 rounded-full border border-neutral-800 text-xs" id="now">...</div>
-      <div class="px-2 py-1 rounded-full border border-neutral-800 text-xs" id="status">loading…</div>
-    </div>
-
-    <div id="modelSelectors" class="ml-4 flex items-center gap-3"></div>
-
-    <div class="ml-auto flex items-center gap-3">
-      <label class="flex items-center gap-2">
-        <span class="text-xs text-neutral-400">Preset:</span>
-        <select id="presetSelect" class="h-9 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 text-sm"></select>
-      </label>
-
-      <button id="savePresetBtn"
-        class="h-9 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 text-sm font-semibold hover:bg-neutral-950/60">
-        Save settings
-      </button>
-    </div>
-  </header>
-
-  <!-- Main: fixed height, only lanes scroll -->
-  <main class="h-[calc(100dvh-4rem)] overflow-hidden">
-    <!-- Desktop/tablet: 3 vertical panels -->
-    <div class="hidden md:flex h-full gap-3 p-3">
-      <section class="flex-1 min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-          <h3 class="text-sm font-semibold">Slots</h3>
-        </div>
-        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="slotsRow"></div>
-      </section>
-
-      <section class="flex-[2] min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-          <h3 class="text-sm font-semibold">Chains</h3>
-        </div>
-        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="lanesRow"></div>
-      </section>
-
-      <section class="flex-1 min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-          <h3 class="text-sm font-semibold">Debug</h3>
-        </div>
-        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="debug"></div>
-      </section>
-    </div>
-
-    <!-- Mobile: horizontal lane paging -->
-    <div class="md:hidden h-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory">
-      <div class="h-full flex">
-        <section class="snap-start w-[100vw] h-full p-3">
-          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-              <h3 class="text-sm font-semibold">Slots</h3>
-            </div>
-            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="slotsRowMobile"></div>
+        <!-- Badges -->
+        <div class="flex items-center gap-2">
+          <div id="now"
+               class="rounded-full border border-neutral-800 bg-neutral-900/40 px-2 py-1 text-xs">
+            ...
           </div>
-        </section>
-
-        <section class="snap-start w-[100vw] h-full p-3">
-          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-              <h3 class="text-sm font-semibold">Chains</h3>
-            </div>
-            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="lanesRowMobile"></div>
+          <div id="status"
+               class="rounded-full border border-neutral-800 bg-neutral-900/40 px-2 py-1 text-xs">
+            loading…
           </div>
-        </section>
-
-        <section class="snap-start w-[100vw] h-full p-3">
-          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
-            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
-              <h3 class="text-sm font-semibold">Debug</h3>
-            </div>
-            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="debugMobile"></div>
-          </div>
-        </section>
+        </div>
       </div>
-    </div>
-  </main>
+
+      <!-- Model selectors (JS injects content here) -->
+      <div id="modelSelectors"
+           class="flex flex-wrap items-center gap-3"></div>
+
+      <!-- Preset actions -->
+      <div class="md:ml-auto flex flex-col items-start gap-2 md:items-end">
+        <label class="flex flex-col gap-1">
+          <span class="text-xs text-neutral-400">Preset:</span>
+          <select id="presetSelect"
+                  class="h-9 min-w-[240px] rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 text-sm text-neutral-100 outline-none">
+          </select>
+        </label>
+
+        <button id="savePresetBtn"
+                class="h-9 rounded-full border border-neutral-800 bg-neutral-900/40 px-4 text-sm font-semibold hover:bg-neutral-900/60 active:translate-y-[1px]">
+          Save settings
+        </button>
+      </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="mt-6 space-y-6">
+
+      <!-- Slots -->
+      <section class="rounded-xl border border-neutral-800 bg-neutral-900/20 p-4">
+        <div class="mb-3 text-xs text-neutral-400">
+          Slots (from Dump Program SetPluginSlot)
+        </div>
+
+        <!-- JS fills this -->
+        <div id="slotsRow"
+             class="flex flex-wrap gap-3">
+        </div>
+      </section>
+
+      <!-- Chains -->
+      <section class="rounded-xl border border-neutral-800 bg-neutral-900/20 p-4">
+        <div class="mb-3 text-xs text-neutral-400">
+          Chains present (from Dump Program SetChain)
+        </div>
+
+        <!-- JS fills this -->
+        <div id="lanesRow"
+             class="flex flex-wrap gap-3">
+        </div>
+      </section>
+
+      <!-- Debug -->
+      <details class="rounded-xl border border-neutral-800 bg-neutral-900/20 p-4">
+        <summary class="cursor-pointer select-none text-sm font-semibold">
+          Debug
+        </summary>
+
+        <div id="debug" class="mt-3 space-y-3"></div>
+      </details>
+
+    </main>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>
-
+</html>
