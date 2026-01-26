@@ -8,3 +8,6 @@ namnesis-ui-gateway
 *.out
 *.log
 
+# Downloaded build tools (not part of the product)
+tools/
+tailwind.config.js

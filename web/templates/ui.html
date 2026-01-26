@@ -1,42 +1,108 @@
-<!doctype html>
-<html lang="en">
 <head>
+  <!-- Charset -->
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NAMNESIS UI (Read-only)</title>
- <link rel="stylesheet" href="/static/app.css">
+
+  <!-- Mobile viewport: critical for horizontal lane paging -->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+
+  <!-- Title -->
+  <title>NAMNESIS</title>
+
+  <!-- Compiled Tailwind CSS (static, no runtime dependency) -->
+  <link rel="stylesheet" href="/static/tailwind.css" />
+
+  <!-- Optional: small performance hint (safe even if unused) -->
+  <meta name="color-scheme" content="dark light" />
 </head>
-<body>
-  <header>
-    <img src="/static/img/logo.svg" alt="Namnesis" class="logo" alt="Namnesis" />
-    
-    <div class="badge" id="now">...</div>
-    <div class="badge" id="status">loading…</div>
-  
-    <div id="modelSelectors" style="margin-left:16px; display:flex; gap:12px; align-items:center;"></div>
-  
-    <label style="margin-left:auto;">
-      Preset:
-      <select id="presetSelect"></select>
-    </label>
+
+<body class="h-dvh overflow-hidden bg-neutral-950 text-neutral-100">
+  <!-- Header -->
+  <header class="h-[4rem] border-b border-neutral-800 px-4 flex items-center gap-4">
+
+    <img src="/static/img/logo.svg" alt="Namnesis" class="h-12 w-auto" />
+
+    <div class="flex items-center gap-2">
+      <div class="px-2 py-1 rounded-full border border-neutral-800 text-xs" id="now">...</div>
+      <div class="px-2 py-1 rounded-full border border-neutral-800 text-xs" id="status">loading…</div>
+    </div>
+
+    <div id="modelSelectors" class="ml-4 flex items-center gap-3"></div>
+
+    <div class="ml-auto flex items-center gap-3">
+      <label class="flex items-center gap-2">
+        <span class="text-xs text-neutral-400">Preset:</span>
+        <select id="presetSelect" class="h-9 rounded-lg border border-neutral-800 bg-neutral-950/40 px-2 text-sm"></select>
+      </label>
+
+      <button id="savePresetBtn"
+        class="h-9 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 text-sm font-semibold hover:bg-neutral-950/60">
+        Save settings
+      </button>
+    </div>
   </header>
-  <button id="savePresetBtn" class="btn">Save</button>
 
-  <section>
-    <div class="muted">Slots (from Dump Program SetPluginSlot)</div>
-    <div class="row" id="slotsRow"></div>
-  </section>
+  <!-- Main: fixed height, only lanes scroll -->
+  <main class="h-[calc(100dvh-4rem)] overflow-hidden">
+    <!-- Desktop/tablet: 3 vertical panels -->
+    <div class="hidden md:flex h-full gap-3 p-3">
+      <section class="flex-1 min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+          <h3 class="text-sm font-semibold">Slots</h3>
+        </div>
+        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="slotsRow"></div>
+      </section>
 
-  <section>
-    <div class="muted">Chains present (from Dump Program SetChain)</div>
-    <div class="row" id="lanesRow"></div>
-  </section>
+      <section class="flex-[2] min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+          <h3 class="text-sm font-semibold">Chains</h3>
+        </div>
+        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="lanesRow"></div>
+      </section>
 
-  <details style="margin-top:16px;">
-    <summary>Debug</summary>
-    <div id="debug"></div>
-  </details>
+      <section class="flex-1 min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+        <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+          <h3 class="text-sm font-semibold">Debug</h3>
+        </div>
+        <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="debug"></div>
+      </section>
+    </div>
 
-<script src="/static/app.js"></script>
+    <!-- Mobile: horizontal lane paging -->
+    <div class="md:hidden h-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory">
+      <div class="h-full flex">
+        <section class="snap-start w-[100vw] h-full p-3">
+          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+              <h3 class="text-sm font-semibold">Slots</h3>
+            </div>
+            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="slotsRowMobile"></div>
+          </div>
+        </section>
+
+        <section class="snap-start w-[100vw] h-full p-3">
+          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+              <h3 class="text-sm font-semibold">Chains</h3>
+            </div>
+            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="lanesRowMobile"></div>
+          </div>
+        </section>
+
+        <section class="snap-start w-[100vw] h-full p-3">
+          <div class="h-full rounded-xl border border-neutral-800 bg-neutral-900/30 overflow-hidden">
+            <div class="h-10 px-3 flex items-center border-b border-neutral-800">
+              <h3 class="text-sm font-semibold">Debug</h3>
+            </div>
+            <div class="h-[calc(100%-2.5rem)] overflow-y-auto overflow-x-hidden p-3" id="debugMobile"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
 </body>
-</html>
+

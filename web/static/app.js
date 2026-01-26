@@ -2,9 +2,9 @@
   const elNow = document.getElementById('now');
   const elStatus = document.getElementById('status');
   const elPreset = document.getElementById('presetSelect');
-  const elSlots = document.getElementById('slotsRow');
-  const elLanes = document.getElementById('lanesRow');
-  const elDebug = document.getElementById('debug');
+  const elSlots = document.getElementById('slotsRow') || document.getElementById('slotsRowMobile');
+  const elLanes = document.getElementById('lanesRow') || document.getElementById('lanesRowMobile');
+  const elDebug = document.getElementById('debug') || document.getElementById('debugMobile');
   const elModelSelectors = document.getElementById('modelSelectors');
   const savePresetBtn = document.getElementById("savePresetBtn");
 
