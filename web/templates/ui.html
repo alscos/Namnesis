@@ -15,13 +15,17 @@
   
     <div id="modelSelectors" style="margin-left:16px; display:flex; gap:12px; align-items:center;"></div>
   
-    <label style="margin-left:auto;">
-      Preset:
+   <div class="preset-actions">
+    <label>
+      <div class="muted">Preset:</div>
       <select id="presetSelect"></select>
     </label>
-  </header>
-  <button id="savePresetBtn" class="btn">Save</button>
 
+    <button id="savePresetBtn" class="save-btn">
+      Save settings
+    </button>
+  </div>
+  </header>
   <section>
     <div class="muted">Slots (from Dump Program SetPluginSlot)</div>
     <div class="row" id="slotsRow"></div>
