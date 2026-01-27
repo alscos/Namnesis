@@ -6,9 +6,6 @@
 .static {
   position: static;
 }
-.container {
-  width: 100%;
-}
 .mx-auto {
   margin-inline: auto;
 }
@@ -18,8 +15,14 @@
 .flex {
   display: flex;
 }
+.grid {
+  display: grid;
+}
 .inline {
   display: inline;
+}
+.h-\[130px\] {
+  height: 130px;
 }
 .min-h-dvh {
   min-height: 100dvh;
@@ -27,14 +30,29 @@
 .w-auto {
   width: auto;
 }
-.max-w-\[1400px\] {
-  max-width: 1400px;
+.w-full {
+  width: 100%;
+}
+.max-w-\[1600px\] {
+  max-width: 1600px;
+}
+.min-w-\[100px\] {
+  min-width: 100px;
 }
 .min-w-\[240px\] {
   min-width: 240px;
 }
+.flex-1 {
+  flex: 1;
+}
+.shrink-0 {
+  flex-shrink: 0;
+}
 .cursor-pointer {
   cursor: pointer;
+}
+.grid-cols-1 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 .flex-col {
   flex-direction: column;
@@ -45,15 +63,71 @@
 .items-center {
   align-items: center;
 }
+.items-end {
+  align-items: flex-end;
+}
 .items-start {
   align-items: flex-start;
 }
-.rounded-full {
-  border-radius: calc(infinity * 1px);
+.justify-between {
+  justify-content: space-between;
+}
+.overflow-y-auto {
+  overflow-y: auto;
 }
 .border {
   border-style: var(--tw-border-style);
   border-width: 1px;
+}
+.border-t {
+  border-top-style: var(--tw-border-style);
+  border-top-width: 1px;
+}
+.border-b {
+  border-bottom-style: var(--tw-border-style);
+  border-bottom-width: 1px;
+}
+.border-l {
+  border-left-style: var(--tw-border-style);
+  border-left-width: 1px;
+}
+.text-center {
+  text-align: center;
+}
+.text-\[10px\] {
+  font-size: 10px;
+}
+.text-\[11px\] {
+  font-size: 11px;
+}
+.tracking-\[0\.3em\] {
+  --tw-tracking: 0.3em;
+  letter-spacing: 0.3em;
+}
+.uppercase {
+  text-transform: uppercase;
+}
+.antialiased {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.opacity-95 {
+  opacity: 95%;
+}
+.transition-all {
+  transition-property: all;
+  transition-timing-function: var(--tw-ease, ease);
+  transition-duration: var(--tw-duration, 0s);
+}
+.transition-colors {
+  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
+  transition-timing-function: var(--tw-ease, ease);
+  transition-duration: var(--tw-duration, 0s);
+}
+.transition-transform {
+  transition-property: transform, translate, scale, rotate;
+  transition-timing-function: var(--tw-ease, ease);
+  transition-duration: var(--tw-duration, 0s);
 }
 .outline-none {
   --tw-outline-style: none;
@@ -63,10 +137,44 @@
   -webkit-user-select: none;
   user-select: none;
 }
-.active\:translate-y-\[1px\] {
+.group-open\:rotate-90 {
+  &:is(:where(.group):is([open], :popover-open, :open) *) {
+    rotate: 90deg;
+  }
+}
+.active\:scale-95 {
   &:active {
-    --tw-translate-y: 1px;
-    translate: var(--tw-translate-x) var(--tw-translate-y);
+    --tw-scale-x: 95%;
+    --tw-scale-y: 95%;
+    --tw-scale-z: 95%;
+    scale: var(--tw-scale-x) var(--tw-scale-y);
+  }
+}
+.\[\&_\.muted\]\:text-\[10px\] {
+  & .muted {
+    font-size: 10px;
+  }
+}
+.\[\&_\.muted\]\:uppercase {
+  & .muted {
+    text-transform: uppercase;
+  }
+}
+.\[\&_select\]\:min-w-\[280px\] {
+  & select {
+    min-width: 280px;
+  }
+}
+.\[\&_select\]\:border {
+  & select {
+    border-style: var(--tw-border-style);
+    border-width: 1px;
+  }
+}
+.\[\&_select\]\:outline-none {
+  & select {
+    --tw-outline-style: none;
+    outline-style: none;
   }
 }
 html, body {
@@ -77,28 +185,33 @@ html, body {
   inherits: false;
   initial-value: solid;
 }
-@property --tw-translate-x {
+@property --tw-tracking {
   syntax: "*";
   inherits: false;
-  initial-value: 0;
 }
-@property --tw-translate-y {
+@property --tw-scale-x {
   syntax: "*";
   inherits: false;
-  initial-value: 0;
+  initial-value: 1;
 }
-@property --tw-translate-z {
+@property --tw-scale-y {
   syntax: "*";
   inherits: false;
-  initial-value: 0;
+  initial-value: 1;
+}
+@property --tw-scale-z {
+  syntax: "*";
+  inherits: false;
+  initial-value: 1;
 }
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
       --tw-border-style: solid;
-      --tw-translate-x: 0;
-      --tw-translate-y: 0;
-      --tw-translate-z: 0;
+      --tw-tracking: initial;
+      --tw-scale-x: 1;
+      --tw-scale-y: 1;
+      --tw-scale-z: 1;
     }
   }
 }
