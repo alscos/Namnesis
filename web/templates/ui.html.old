@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NAMNESIS UI (Read-only)</title>
+ <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header>
+    <img src="/static/img/logo.svg" alt="Namnesis" class="logo" alt="Namnesis" />
+    
+    <div class="badge" id="now">...</div>
+    <div class="badge" id="status">loading…</div>
+  
+    <div id="modelSelectors" style="margin-left:16px; display:flex; gap:12px; align-items:center;"></div>
+  
+   <div class="preset-actions">
+    <label>
+      <div class="muted">Preset:</div>
+      <select id="presetSelect"></select>
+    </label>
+
+    <button id="savePresetBtn" class="save-btn">
+      Save settings
+    </button>
+  </div>
+  </header>
+  <section>
+    <div class="muted">Slots (from Dump Program SetPluginSlot)</div>
+    <div class="row" id="slotsRow"></div>
+  </section>
+
+  <section>
+    <div class="muted">Chains present (from Dump Program SetChain)</div>
+    <div class="row" id="lanesRow"></div>
+  </section>
+
+  <details style="margin-top:16px;">
+    <summary>Debug</summary>
+    <div id="debug"></div>
+  </details>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
