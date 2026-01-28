@@ -115,6 +115,61 @@ function setPresetDropdown(presetList, currentPreset) {
   }
 }
 
+async function setPluginEnabled(pluginName, enabled) {
+  const res = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/enabled`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled })
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || `HTTP ${res.status}`);
+  }
+}
+
+function setToggleUI(el, enabled) {
+  el.classList.toggle("on", enabled);
+  el.classList.toggle("off", !enabled);
+  el.setAttribute("aria-pressed", enabled ? "true" : "false");
+}
+
+function wirePluginToggle(el, name) {
+  el.addEventListener("click", async () => {
+    if (el.dataset.busy === "1") return;
+    el.dataset.busy = "1";
+
+    const current = (el.getAttribute("aria-pressed") === "true");
+    const next = !current;
+
+    // Optimistic UI
+    setToggleUI(el, next);
+    el.classList.add("is-busy");
+
+    try {
+      await setPluginEnabled(name, next);
+      await refreshUI(); // authoritative re-sync
+    } catch (e) {
+      // Rollback
+      setToggleUI(el, current);
+      console.error(e);
+      alert(`Toggle failed: ${e.message}`);
+    } finally {
+      el.classList.remove("is-busy");
+      el.dataset.busy = "0";
+    }
+  });
+
+  // Keyboard support (Space/Enter) if needed (button already handles Enter)
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key === " " || ev.key === "Enter") {
+      ev.preventDefault();
+      el.click();
+    }
+  });
+}
+
+
 async function onPresetChanged(e) {
   if (isProgrammaticPresetUpdate) return;
 
@@ -325,7 +380,6 @@ function buildPluginCard(label, meta, paramObj) {
   if (meta?.fg) card.style.color = meta.fg;
   if (meta?.desc) card.title = meta.desc;
 
-  // Header: title (left) + ON/OFF (right)
   const head = document.createElement('div');
   head.className = 'pill-head';
 
@@ -333,16 +387,33 @@ function buildPluginCard(label, meta, paramObj) {
   t.className = 'pill-title';
   t.textContent = label;
 
-  const enabled = paramObj?.Enabled;
-  const st = document.createElement('div');
-  st.className = 'pill-state ' + ((String(enabled) === '1') ? 'is-on' : 'is-off');
-  st.textContent = (enabled === undefined) ? '' : ((String(enabled) === '1') ? 'ON' : 'OFF');
+  const enabledRaw = paramObj?.Enabled;
+  const enabledBool = (String(enabledRaw) === '1');
+
+  // Toggle switch (button)
+  const st = document.createElement('button');
+  st.type = "button";
+  st.className = `pill-state ${enabledBool ? "on" : "off"}`;
+  st.innerHTML = `
+    <div class="switch-container">
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </div>
+  `;
+  st.setAttribute("aria-label", `Toggle ${label}`);
+  st.setAttribute("aria-pressed", enabledBool ? "true" : "false");
+
+  // If plugin doesn't expose Enabled, disable switch
+  if (enabledRaw === undefined) {
+    st.disabled = true;
+  } else {
+    wirePluginToggle(st, label);
+  }
 
   head.appendChild(t);
   head.appendChild(st);
   card.appendChild(head);
 
-  // Body: key params as “Label: Value” rows
   const rows = buildParamRows(label, paramObj);
   if (rows.length) {
     const body = document.createElement('div');
@@ -353,6 +424,7 @@ function buildPluginCard(label, meta, paramObj) {
 
   return card;
 }
+
 
 function buildParamRows(pluginLabel, p) {
   if (!p) return [];
@@ -671,9 +743,25 @@ function parseDumpProgram(raw) {
   title.className = 'pill-title';
   title.textContent = pluginName;
 
-  const state = document.createElement('div');
+  // ✅ Toggle switch (button) — does not inject "ON/OFF" text
+  const state = document.createElement('button');
+  state.type = "button";
   state.className = 'pill-state ' + (isOn ? 'on' : 'off');
-  state.textContent = isOn ? 'ON' : 'OFF';
+  state.innerHTML = `
+    <div class="switch-container">
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </div>
+  `;
+  state.setAttribute("aria-label", `Toggle ${pluginName}`);
+  state.setAttribute("aria-pressed", isOn ? "true" : "false");
+
+  // Only wire if plugin actually exposes Enabled
+  if (enabledRaw === undefined) {
+    state.disabled = true;
+  } else {
+    wirePluginToggle(state, pluginName);
+  }
 
   head.appendChild(title);
   head.appendChild(state);
@@ -685,13 +773,11 @@ function parseDumpProgram(raw) {
 
   const keys = Object.keys(pluginParams || {})
     .filter(k => k !== 'Enabled')
-    // optional: keep Model/Impulse near the top
     .sort((a, b) => {
       const prio = (k) => (k === 'Model' || k === 'Impulse') ? 0 : 1;
       return prio(a) - prio(b) || a.localeCompare(b);
     });
 
-  // Avoid dumping 20 EQ bands in early UI. Keep it compact for now:
   const MAX_LINES = 4;
 
   for (const k of keys.slice(0, MAX_LINES)) {
@@ -714,6 +800,7 @@ function parseDumpProgram(raw) {
   el.appendChild(body);
   return el;
 }
+
 
   function parseDumpConfig(raw) {
   // Returns: { [pluginName]: { bg: "#rrggbb", fg: "#rrggbb", desc: "..." } }

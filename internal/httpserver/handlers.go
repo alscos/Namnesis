@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"time"
 	"strings"
-
+	"github.com/go-chi/chi/v5"
+	
 	"namnesis-ui-gateway/internal/stompbox"
 )
 
@@ -87,6 +88,43 @@ func (s *Server) handleProgramParsedDebug(w http.ResponseWriter, r *http.Request
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(parsed)
+}
+
+type pluginEnabledReq struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (s *Server) handlePluginEnabled(w http.ResponseWriter, r *http.Request) {
+	plugin := chi.URLParam(r, "plugin")
+	if plugin == "" {
+		http.Error(w, "missing plugin name", http.StatusBadRequest)
+		return
+	}
+
+	var req pluginEnabledReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	val := "0"
+	if req.Enabled {
+		val = "1"
+	}
+
+	// Use your existing Stompbox client abstraction (same style as handleSetFileParam)
+	if err := s.sb.SetParam(plugin, "Enabled", val); err != nil {
+		http.Error(w, "setparam error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Return JSON in the same style as your other handlers
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":      true,
+		"plugin":  plugin,
+		"enabled": req.Enabled,
+	})
 }
 
 
