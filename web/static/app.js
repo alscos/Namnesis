@@ -7,6 +7,33 @@
   const elDebug = document.getElementById('debug') || document.getElementById('debugMobile');
   const elModelSelectors = document.getElementById('modelSelectors');
   const savePresetBtn = document.getElementById("savePresetBtn");
+  
+  const WRITABLE_NUMERIC_PARAMS = new Set([
+  // existing ones…
+  'Attack', 'Release', 'Threshold', 'Strength',
+  'Depth', 'Rate', 'FBack', 'Ratio', 'Speed',
+  'Dry', 'Wet', 'Mix',
+  'Gain', 'Level', 'Tone',
+  'Bias',
+
+  // missing but valid 
+  'Soft',
+  'Blend',
+  'Comp',
+  'Wah',
+  'Fuzz',
+  'Octave',
+  'FrqWidth',
+  'Shape',
+  'Delay',
+  'HiLo',
+  'High',
+  'Low',
+  'Drive',
+  'Decay',
+  'Size'
+]);
+
 
 
   function debounce(fn, delayMs) {
@@ -29,6 +56,75 @@ async function setNumericParam(plugin, param, value) {
     throw new Error(txt || `HTTP ${res.status}`);
   }
 }
+let setParamBusy = false;
+let queuedSet = null; // { plugin, param, value }
+
+async function setNumericParamQueued(plugin, param, value) {
+  // Always keep latest request
+  queuedSet = { plugin, param, value };
+
+  // If a send is already in flight, exit; it will flush the queue after finishing
+  if (setParamBusy) return;
+
+  setParamBusy = true;
+  try {
+    while (queuedSet) {
+      const req = queuedSet;
+      queuedSet = null;
+      await setNumericParam(req.plugin, req.param, req.value);
+    }
+  } finally {
+    setParamBusy = false;
+  }
+}
+
+function pickPluginKeys(pluginName, pluginParams) {
+  const base = pluginName.replace(/_\d+$/, '');
+  const all = Object.keys(pluginParams || {}).filter(k => k !== 'Enabled');
+
+  const out = [];
+
+  // Always include file params first if present
+  if (all.includes('Model')) out.push('Model');
+  if (all.includes('Impulse')) out.push('Impulse');
+
+  const PREFERRED = {
+    NoiseGate: ['Threshold', 'Attack', 'Release', 'Soft', 'Strength'],
+    Compressor: ['Attack', 'Blend', 'Comp', 'Ratio'],
+    Phaser: ['Depth', 'FBack', 'FrqWidth', 'Ratio'],
+    Chorus: ['Depth', 'Rate'],
+    Flanger: ['Depth', 'FBack', 'Rate'],
+    Vibrato: ['Depth', 'FBack', 'Ratio', 'Speed'],
+    Tremolo: ['Depth', 'Shape', 'Speed'],
+    Delay: ['Delay', 'FBack', 'HiLo', 'Mix'],
+    ConvoReverb: ['Dry', 'Wet'],
+    Reverb: ['Blend', 'Decay', 'Size'],
+    Screamer: ['Drive', 'Level', 'Tone'],
+    Boost: ['Gain', 'Level'],
+    Fuzz: ['Bias', 'Fuzz', 'Level', 'Octave'],
+    AutoWah: ['Level', 'Wah'],
+    Wah: ['Wah'],
+    HighLow: ['High', 'Low'],
+    'EQ-7': ['10.0k', '120', '4.5k', '400'],
+  };
+
+  const preferred = PREFERRED[base] || [];
+  for (const k of preferred) {
+    if (all.includes(k) && !out.includes(k)) out.push(k);
+  }
+
+  // Add any remaining numeric writable params
+  for (const k of all) {
+    if (out.includes(k)) continue;
+    const n = Number(pluginParams[k]);
+    if (!Number.isFinite(n)) continue;
+    if (!WRITABLE_NUMERIC_PARAMS.has(k)) continue;
+    out.push(k);
+  }
+
+  return out.slice(0, 8);
+}
+
 function buildDelayMixSlider(pluginName, currentValue) {
   const wrap = document.createElement('div');
   wrap.className = 'pill-row'; // reuse your layout rhythm
@@ -53,23 +149,16 @@ function buildDelayMixSlider(pluginName, currentValue) {
   slider.style.width = '100%';
   slider.style.marginTop = '4px';
 
-  const send = debounce(async (val) => {
-    try {
-      await setNumericParam(pluginName, 'Mix', val);
-    } catch (e) {
-      console.error('SetParam failed:', e);
-    }
-  }, 40);
-
   slider.addEventListener('input', (e) => {
   const val = parseFloat(e.target.value);
   v.textContent = val.toFixed(2); // UI only
 });
 
 slider.addEventListener('change', async (e) => {
+  if (!e.isTrusted) return;
   const val = parseFloat(e.target.value);
   try {
-    await setNumericParam(pluginName, 'Mix', val);
+    await setNumericParamQueued(pluginName, 'Mix', val);
     // Optional: authoritative resync (safe, single shot)
     // await refreshUI();
   } catch (err) {
@@ -410,7 +499,7 @@ async function refreshAfterPresetChange(expectedName) {
 
   return el;
 }
-function renderChainsFromProgram(elLanes, program, pluginMetaByName) {
+function renderChainsFromProgram(elLanes, program, pluginMetaByName, paramMetaByBaseType) {
   elLanes.textContent = '';
 
   const chainOrder = ['Input', 'FxLoop', 'Output']; // fixed UI order
@@ -443,114 +532,75 @@ function renderChainsFromProgram(elLanes, program, pluginMetaByName) {
       const baseType = pluginName.replace(/_\d+$/, '');
       const meta = pluginMetaByName?.[baseType] || pluginMetaByName?.[pluginName] || null;
 
-      lane.appendChild(buildPluginPill(pluginName, p, meta?.bg || null, meta?.fg || null));
+      lane.appendChild(buildPluginPill(
+        pluginName,
+        p,
+        meta?.bg || null,
+        meta?.fg || null,
+        paramMetaByBaseType?.[baseType] || paramMetaByBaseType?.[pluginName] || {}
+      ));
+
     }
 
     elLanes.appendChild(lane);
   }
 }
 
-function buildPluginCard(label, meta, paramObj) {
-  const card = document.createElement('div');
-  card.className = 'pill';
-
-  if (meta?.bg) card.style.backgroundColor = meta.bg;
-  if (meta?.fg) card.style.color = meta.fg;
-  if (meta?.desc) card.title = meta.desc;
-
-  const head = document.createElement('div');
-  head.className = 'pill-head';
-
-  const t = document.createElement('div');
-  t.className = 'pill-title';
-  t.textContent = label;
-
-  const enabledRaw = paramObj?.Enabled;
-  const enabledBool = (String(enabledRaw) === '1');
-
-  // Toggle switch (button)
-  const st = document.createElement('button');
-  st.type = "button";
-  st.className = `pill-state ${enabledBool ? "on" : "off"}`;
-  st.innerHTML = `
-    <div class="switch-container">
-      <div class="switch-track"></div>
-      <div class="switch-thumb"></div>
-    </div>
-  `;
-  st.setAttribute("aria-label", `Toggle ${label}`);
-  st.setAttribute("aria-pressed", enabledBool ? "true" : "false");
-
-  // If plugin doesn't expose Enabled, disable switch
-  if (enabledRaw === undefined) {
-    st.disabled = true;
-  } else {
-    wirePluginToggle(st, label);
-  }
-
-  head.appendChild(t);
-  head.appendChild(st);
-  card.appendChild(head);
-
-  const rows = buildParamRows(label, paramObj);
-  if (rows.length) {
-    const body = document.createElement('div');
-    body.className = 'pill-body';
-    for (const row of rows) body.appendChild(row);
-    card.appendChild(body);
-  }
-
-  return card;
-}
 
 
-function buildParamRows(pluginLabel, p) {
-  if (!p) return [];
+function buildNumericSliderRow(pluginName, paramName, currentValue, meta) {
+  const row = document.createElement('div');
+  row.className = 'kv';
 
-  // Pick a reasonable set, in priority order.
-  // (You can keep expanding this per-plugin later.)
-  const keys = [];
+  const kk = document.createElement('div');
+  kk.className = 'k';
+  kk.textContent = paramName + ':';
 
-  // Most important “file” params
-  if (p.Model !== undefined) keys.push('Model');
-  if (p.Impulse !== undefined) keys.push('Impulse');
+  const vv = document.createElement('div');
+  vv.className = 'v';
+  vv.textContent = Number(currentValue).toFixed(3);
 
-  // Common mix params
-  if (p.Wet !== undefined) keys.push('Wet');
-  if (p.Dry !== undefined) keys.push('Dry');
+  const slider = document.createElement('input');
+  slider.type = 'range';
 
-  // Common controls
-  if (p.Gain !== undefined) keys.push('Gain');
-  if (p.Volume !== undefined) keys.push('Volume');
-  if (p.Level !== undefined) keys.push('Level');
+  // Fallbacks if meta missing
+  const min = Number.isFinite(meta?.min) ? meta.min : 0;
+  const max = Number.isFinite(meta?.max) ? meta.max : 1;
+  const step = Number.isFinite(meta?.step) ? meta.step : 0.01;
 
-  // If still empty, show up to 3 non-Enabled params
-  if (!keys.length) {
-    for (const k of Object.keys(p)) {
-      if (k === 'Enabled') continue;
-      keys.push(k);
-      if (keys.length >= 3) break;
-    }
-  }
+  slider.min = String(min);
+  slider.max = String(max);
+  slider.step = String(step);
+  slider.value = String(Number(currentValue));
 
-  // Build DOM rows
-  return keys.slice(0, 4).map((k) => {
-    const row = document.createElement('div');
-    row.className = 'pill-row';
+  slider.style.gridColumn = '1 / -1';
+  slider.style.width = '100%';
+  slider.style.marginTop = '4px';
 
-    const kk = document.createElement('strong');
-    kk.className = 'pill-key';
-    kk.textContent = prettifyKey(k) + ':';
-
-    const vv = document.createElement('span');
-    vv.className = 'pill-val';
-    vv.textContent = formatValueWithUnits(k, p[k]);
-
-    row.appendChild(kk);
-    row.appendChild(vv);
-    return row;
+  // UI updates live, backend commits on release (change)
+  slider.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    vv.textContent = val.toFixed(3);
   });
+
+  slider.addEventListener('change', async (e) => {
+    const val = parseFloat(e.target.value);
+    try {
+      await setNumericParamQueued(pluginName, paramName, val);
+      // Optional: one refresh if you want authoritative snapback
+      // await refreshUI();
+    } catch (err) {
+      console.error(err);
+      alert(`SetParam failed: ${err.message || err}`);
+    }
+  });
+
+  row.appendChild(kk);
+  row.appendChild(vv);
+  row.appendChild(slider);
+  return row;
 }
+
 
 function prettifyKey(k) {
   // Minor cosmetics
@@ -800,7 +850,7 @@ function parseDumpProgram(raw) {
     return { chains, slots: globalSlots, chainItems };
   }
   
-  function buildPluginPill(pluginName, pluginParams, bgColor, fgColor) {
+  function buildPluginPill(pluginName, pluginParams, bgColor, fgColor, paramMetaForThisPlugin) {
   const el = document.createElement('div');
   el.className = 'pill';
 
@@ -849,43 +899,122 @@ function parseDumpProgram(raw) {
   const body = document.createElement('div');
   body.className = 'pill-body';
 
-  const keys = Object.keys(pluginParams || {})
-    .filter(k => k !== 'Enabled')
-    .sort((a, b) => {
-      const prio = (k) => (k === 'Model' || k === 'Impulse') ? 0 : 1;
-      return prio(a) - prio(b) || a.localeCompare(b);
-    });
+  // ✅ Choose which params to show
+  const keys = pickPluginKeys(pluginName, pluginParams);
 
-  const MAX_LINES = 4;
+  for (const k of keys) {
+    const raw = pluginParams?.[k];
+    const n = Number(raw);
 
-for (const k of keys.slice(0, MAX_LINES)) {
-  const row = document.createElement('div');
-  row.className = 'kv';
+    const meta = paramMetaForThisPlugin?.[k] || null;
 
-  const kk = document.createElement('div');
-  kk.className = 'k';
-  kk.textContent = k + ':';
+    const allow = WRITABLE_NUMERIC_PARAMS.has(k);
 
-  const vv = document.createElement('div');
-  vv.className = 'v';
-  vv.textContent = withUnit(k, pluginParams[k]);
+    const canSlider =
+      allow &&
+      Number.isFinite(n) &&
+      meta &&
+      Number.isFinite(meta.min) &&
+      Number.isFinite(meta.max) &&
+      k !== 'Model' &&
+      k !== 'Impulse';
 
-  row.appendChild(kk);
-  row.appendChild(vv);
-  body.appendChild(row);
+    if (Number.isFinite(n)) {
+        const inWritable = WRITABLE_NUMERIC_PARAMS.has(k);
+        const hasMeta = !!meta;
+        const hasRange = hasMeta && Number.isFinite(meta.min) && Number.isFinite(meta.max);
+        if (!canSlider) {
+          console.log('[NO SLIDER]', pluginName, k, { n, inWritable, hasMeta, hasRange, meta });
+        }
+      }
+
+    if (canSlider) {
+      body.appendChild(buildNumericSliderRow(pluginName, k, n, meta));
+      continue;
+    }
+
+    // Fallback: read-only line
+    const row = document.createElement('div');
+    row.className = 'kv';
+
+    const kk = document.createElement('div');
+    kk.className = 'k';
+    kk.textContent = k + ':';
+
+    const vv = document.createElement('div');
+    vv.className = 'v';
+    vv.textContent = withUnit(k, raw);
+
+    row.appendChild(kk);
+    row.appendChild(vv);
+    body.appendChild(row);
+  }
+
+  el.appendChild(body);
+  return el;
+  }
+
+
+function parseParameterConfig(raw) {
+  // meta[pluginBase][paramName] = { type, min, max, def, step, isOutput, valueFormat }
+  const meta = {};
+  if (!raw) return meta;
+
+  const lines = raw.split(/\r?\n/);
+
+  const getTok = (parts, key) => {
+    const i = parts.indexOf(key);
+    if (i >= 0 && i + 1 < parts.length) return parts[i + 1];
+    return null;
+  };
+
+  for (const line of lines) {
+    if (!line.startsWith('ParameterConfig ')) continue;
+
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 4) continue;
+
+    const plugin = parts[1];   // e.g. "Boost"
+    const param = parts[2];    // e.g. "Gain"
+
+    const type = getTok(parts, 'Type'); // "Knob", etc.
+    const minS = getTok(parts, 'MinValue');
+    const maxS = getTok(parts, 'MaxValue');
+    const defS = getTok(parts, 'DefaultValue');
+    const isOutputS = getTok(parts, 'IsOutput'); // "0" or "1"
+
+    const min = (minS !== null) ? Number(minS) : null;
+    const max = (maxS !== null) ? Number(maxS) : null;
+    const def = (defS !== null) ? Number(defS) : null;
+    const isOutput = (isOutputS !== null) ? (Number(isOutputS) === 1) : false;
+
+    // ValueFormat sometimes contains braces/spaces -> parse from original line
+    let valueFormat = null;
+    {
+      const m = line.match(/\bValueFormat\s+([^\s]+)\s/);
+      if (m) valueFormat = m[1];
+    }
+
+    // Step heuristic (safe defaults)
+    let step = 0.01;
+    if (Number.isFinite(min) && Number.isFinite(max)) {
+      const span = Math.abs(max - min);
+      if (span <= 1) step = 0.001;
+      else if (span <= 10) step = 0.01;
+      else step = 0.1;
+    }
+
+    if (!meta[plugin]) meta[plugin] = {};
+    meta[plugin][param] = { type, min, max, def, step, isOutput, valueFormat };
+  }
+
+  return meta;
 }
 
-// hard-coded, on purpose
-if (pluginName === 'Delay_2' && pluginParams?.Mix !== undefined) {
-  body.appendChild(
-    buildDelayMixSlider(pluginName, Number(pluginParams.Mix))
-  );
-}
 
-el.appendChild(body);
-return el;
 
-}
+
+
 
 
   function parseDumpConfig(raw) {
@@ -977,6 +1106,7 @@ async function refreshUI() {
 
     const pluginMetaMap = data?.dumpConfig?.error ? {} : parseDumpConfig(data?.dumpConfig?.raw || '');
     const trees = data?.dumpConfig?.error ? {} : parseFileTrees(data?.dumpConfig?.raw || '');
+    const paramMetaMap = data?.dumpConfig?.error ? {} : parseParameterConfig(data?.dumpConfig?.raw || '');
 
     const program = data?.program?.error
       ? parseDumpProgram('')
@@ -1010,7 +1140,8 @@ async function refreshUI() {
 
     // Render lanes + slots ONCE (and do not clear after)
     elLanes.innerHTML = '';
-    renderChainsFromProgram(elLanes, program, pluginMetaMap);
+    renderChainsFromProgram(elLanes, program, pluginMetaMap, paramMetaMap);
+
 
     elSlots.innerHTML = '';
     renderSlotsFromDumpProgram(elSlots, program);
