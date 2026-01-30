@@ -458,3 +458,31 @@ select {
   opacity: 0.75;
   pointer-events: none;
 }
+/* Toggles de parámetros internos (Octave, etc.) */
+.pill-param-toggle {
+  transform: scale(0.75);
+  opacity: 0.85;
+}
+
+/* Track más fino */
+.pill-param-toggle .switch-track {
+  height: 20px;
+}
+
+/* Thumb más pequeño */
+.pill-param-toggle .switch-thumb {
+  width: 18px;
+  height: 18px;
+  top: 1px;
+}
+
+/* Ajuste fino del alineado */
+.kv-bool {
+  align-items: center;
+}
+
+/* Opcional: menos margen vertical */
+.kv-bool .v {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
