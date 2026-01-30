@@ -1,0 +1,105 @@
+SetPreset 05_weel_placed_rvb
+SetChain Input NoiseGate_2 Compressor_2 Wah_2 AutoWah_2 Screamer_2 Boost_2 Fuzz_2 
+SetParam NoiseGate_2 Enabled 1
+SetParam NoiseGate_2 Thresh -70.000000
+SetParam NoiseGate_2 Strength 24.000000
+SetParam NoiseGate_2 Attack 10.000000
+SetParam NoiseGate_2 Release 10.000000
+SetParam NoiseGate_2 Soft 12.000000
+SetParam Compressor_2 Enabled 0
+SetParam Compressor_2 Thresh -20.000000
+SetParam Compressor_2 Ratio 2.000000
+SetParam Compressor_2 Attack 2.000000
+SetParam Compressor_2 Release 20.000000
+SetParam Compressor_2 Blend 1.000000
+SetParam Compressor_2 Comp 0.000000
+SetParam Wah_2 Enabled 0
+SetParam Wah_2 Wah 0.500000
+SetParam AutoWah_2 Enabled 0
+SetParam AutoWah_2 Level 0.500000
+SetParam Screamer_2 Enabled 0
+SetParam Screamer_2 Drive 0.500000
+SetParam Screamer_2 Tone 1000.000000
+SetParam Screamer_2 Level -6.000000
+SetParam Boost_2 Enabled 0
+SetParam Boost_2 Gain 10.000000
+SetParam Boost_2 Level 0.010103
+SetParam Fuzz_2 Enabled 0
+SetParam Fuzz_2 Fuzz 0.500000
+SetParam Fuzz_2 Level 0.500000
+SetParam Fuzz_2 Octave 0
+SetParam Fuzz_2 Bias 0.500000
+SetPluginSlot Amp NAM 
+SetParam NAM Enabled 1
+SetParam NAM Gain 1.000000
+SetParam NAM Level 0.000008
+SetParam NAM Volume 0.700000
+SetParam NAM Level 0.000064
+SetParam NAM Model "fender_bassman_50_normal_channel_bright_off_g3"
+SetPluginSlot Tonestack EQ-7 
+SetParam EQ-7 Enabled 1
+SetParam EQ-7 100 0.000000
+SetParam EQ-7 200 0.000000
+SetParam EQ-7 400 0.000000
+SetParam EQ-7 800 0.000000
+SetParam EQ-7 1.6k 0.000000
+SetParam EQ-7 3.2k 0.000000
+SetParam EQ-7 6.4k 0.000000
+SetParam EQ-7 Vol 1.000000
+SetChain FxLoop Phaser_2 Chorus_2 Flanger_2 Vibrato_2 Tremolo_2 Delay_2 
+SetParam Phaser_2 Enabled 0
+SetParam Phaser_2 Speed 0.500000
+SetParam Phaser_2 Depth 0.500000
+SetParam Phaser_2 FrqWidth 0.300000
+SetParam Phaser_2 Ratio 1.500000
+SetParam Phaser_2 FBack 0.500000
+SetParam Chorus_2 Enabled 0
+SetParam Chorus_2 Rate 2.500000
+SetParam Chorus_2 Depth 0.100000
+SetParam Flanger_2 Enabled 0
+SetParam Flanger_2 Rate 0.200000
+SetParam Flanger_2 Depth 1.000000
+SetParam Flanger_2 FBack 0.500000
+SetParam Vibrato_2 Enabled 0
+SetParam Vibrato_2 Speed 2.000000
+SetParam Vibrato_2 Depth 0.500000
+SetParam Vibrato_2 FBack 0.500000
+SetParam Vibrato_2 Ratio 1.500000
+SetParam Tremolo_2 Enabled 0
+SetParam Tremolo_2 Speed 5.000000
+SetParam Tremolo_2 Depth 0.800000
+SetParam Tremolo_2 Shape 0.500000
+SetParam Delay_2 Enabled 0
+SetParam Delay_2 Delay 250.000000
+SetParam Delay_2 Mix 0.500000
+SetParam Delay_2 FBack 0.500000
+SetParam Delay_2 Warm 0.500000
+SetParam Delay_2 HiLo 0.500000
+SetPluginSlot Cabinet Cabinet 
+SetParam Cabinet Enabled 1
+SetParam Cabinet Impulse "ya_york_212_m65_mix_15"
+SetParam Cabinet Dry 0.000000
+SetParam Cabinet Wet 1.000000
+SetChain Output BEQ-7_2 HighLow_2 ConvoReverb_2 Reverb 
+SetParam BEQ-7_2 Enabled 0
+SetParam BEQ-7_2 50 0.000000
+SetParam BEQ-7_2 120 0.000000
+SetParam BEQ-7_2 400 0.000000
+SetParam BEQ-7_2 500 0.000000
+SetParam BEQ-7_2 800 0.000000
+SetParam BEQ-7_2 4.5k 0.000000
+SetParam BEQ-7_2 10.0k 0.000000
+SetParam BEQ-7_2 Vol 0.000000
+SetParam HighLow_2 Enabled 0
+SetParam HighLow_2 Low 1.000000
+SetParam HighLow_2 High 20000.000000
+SetParam ConvoReverb_2 Enabled 1
+SetParam ConvoReverb_2 Impulse "Univox Pro Verb 2"
+SetParam ConvoReverb_2 Dry 1.000000
+SetParam ConvoReverb_2 Wet 0.009473
+SetParam Reverb Enabled 0
+SetParam Reverb Size 0.500000
+SetParam Reverb Decay 5.000000
+SetParam Reverb Blend 50.000000
+EndProgram
+Ok

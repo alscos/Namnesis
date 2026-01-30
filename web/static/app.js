@@ -9,7 +9,85 @@
   const savePresetBtn = document.getElementById("savePresetBtn");
 
 
-  
+  function debounce(fn, delayMs) {
+  let t = null;
+  return (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), delayMs);
+  };
+}
+
+async function setNumericParam(plugin, param, value) {
+  const res = await fetch('/api/param/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plugin, param, value })
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || `HTTP ${res.status}`);
+  }
+}
+function buildDelayMixSlider(pluginName, currentValue) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pill-row'; // reuse your layout rhythm
+  wrap.style.marginTop = '6px';
+
+  const k = document.createElement('div');
+  k.className = 'k';
+  k.textContent = 'Mix:';
+
+  const v = document.createElement('div');
+  v.className = 'v';
+  v.textContent = Number(currentValue).toFixed(2);
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '1.2';   // from DumpConfig
+  slider.step = '0.01';
+  slider.value = String(currentValue ?? 0);
+
+  slider.style.gridColumn = '1 / -1';
+  slider.style.width = '100%';
+  slider.style.marginTop = '4px';
+
+  const send = debounce(async (val) => {
+    try {
+      await setNumericParam(pluginName, 'Mix', val);
+    } catch (e) {
+      console.error('SetParam failed:', e);
+    }
+  }, 40);
+
+  slider.addEventListener('input', (e) => {
+  const val = parseFloat(e.target.value);
+  v.textContent = val.toFixed(2); // UI only
+});
+
+slider.addEventListener('change', async (e) => {
+  const val = parseFloat(e.target.value);
+  try {
+    await setNumericParam(pluginName, 'Mix', val);
+    // Optional: authoritative resync (safe, single shot)
+    // await refreshUI();
+  } catch (err) {
+    console.error('SetParam failed:', err);
+    alert(`SetParam failed: ${err.message || err}`);
+  }
+});
+
+
+  wrap.appendChild(k);
+  wrap.appendChild(v);
+  wrap.appendChild(slider);
+
+  return wrap;
+}
+
+
+
   function parsePresets(raw) {
     const toks = raw.split(/\s+/).filter(Boolean);
     return toks.filter(t => t !== 'Presets' && t !== 'Ok');
@@ -780,25 +858,33 @@ function parseDumpProgram(raw) {
 
   const MAX_LINES = 4;
 
-  for (const k of keys.slice(0, MAX_LINES)) {
-    const row = document.createElement('div');
-    row.className = 'kv';
+for (const k of keys.slice(0, MAX_LINES)) {
+  const row = document.createElement('div');
+  row.className = 'kv';
 
-    const kk = document.createElement('div');
-    kk.className = 'k';
-    kk.textContent = k + ':';
+  const kk = document.createElement('div');
+  kk.className = 'k';
+  kk.textContent = k + ':';
 
-    const vv = document.createElement('div');
-    vv.className = 'v';
-    vv.textContent = withUnit(k, pluginParams[k]);
+  const vv = document.createElement('div');
+  vv.className = 'v';
+  vv.textContent = withUnit(k, pluginParams[k]);
 
-    row.appendChild(kk);
-    row.appendChild(vv);
-    body.appendChild(row);
-  }
+  row.appendChild(kk);
+  row.appendChild(vv);
+  body.appendChild(row);
+}
 
-  el.appendChild(body);
-  return el;
+// hard-coded, on purpose
+if (pluginName === 'Delay_2' && pluginParams?.Mix !== undefined) {
+  body.appendChild(
+    buildDelayMixSlider(pluginName, Number(pluginParams.Mix))
+  );
+}
+
+el.appendChild(body);
+return el;
+
 }
 
 

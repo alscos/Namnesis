@@ -71,7 +71,7 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Post("/api/param/file", s.handleSetFileParam)
 	r.Post("/api/preset/save", s.handlePresetSave)
 	r.Post("/api/plugins/{plugin}/enabled", s.handlePluginEnabled)
-
+	r.Post("/api/param/set", s.handleParamSet)
 
 	// HTML page
 	r.Get("/dumpconfig", s.handleDumpConfigPage)
