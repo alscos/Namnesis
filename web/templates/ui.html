@@ -1,81 +1,99 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>NAMNESIS UI</title>
 
-  <link rel="stylesheet" href="/static/tailwind.css" />
+  
   <link rel="stylesheet" href="/static/app.css" />
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/tailwind.css" />
   
-  
+
+
 </head>
 
 <body class="min-h-dvh bg-neutral-950 text-neutral-200 antialiased selection:bg-indigo-500/30">
-  
+
   <div class="mx-auto max-w-[1600px] w-full px-4 py-6 md:px-8">
 
     <header class="flex items-center justify-between border-b border-neutral-900 pb-6">
-  <div class="flex items-center gap-4 md:gap-6">
-    <img 
-      src="/static/img/logo.svg" 
-      alt="Namnesis" 
-      class="logo-white h-[90px] md:h-[130px] w-auto opacity-95 transition-all" 
-    />
-    
-    <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
-      <div id="now" class="rounded bg-black border border-neutral-800 px-3 py-1.5 text-[10px] md:text-xs font-mono text-neutral-500 whitespace-nowrap">
-        ...
-      </div>
-      <div id="status" class="status-pulse rounded bg-black border border-indigo-500/30 px-3 py-1.5 text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-400 min-w-[70px] md:min-w-[100px] text-center transition-all">
-        loading…
-      </div>
-    </div>
-  </div>
-</header>
+      <div class="flex items-center gap-4 md:gap-6">
+        <img src="/static/img/logo.svg" alt="Namnesis"
+          class="logo-white h-[90px] md:h-[130px] w-auto opacity-95 transition-all" />
 
-    <section class="mt-6 flex flex-col lg:flex-row items-stretch lg:items-end gap-6 bg-neutral-900/20 p-4 rounded-2xl border border-neutral-800/50 backdrop-blur-md">
-      <div id="modelSelectors" class="flex flex-col sm:flex-row items-stretch sm:items-end gap-6 flex-1 
+        <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
+          <div id="now"
+            class="rounded bg-black border border-neutral-800 px-3 py-1.5 text-[10px] md:text-xs font-mono text-neutral-500 whitespace-nowrap">
+            ...
+          </div>
+          <div id="status"
+            class="status-pulse rounded bg-black border border-indigo-500/30 px-3 py-1.5 text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-400 min-w-[70px] md:min-w-[100px] text-center transition-all">
+            loading…
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section
+      class="mt-6 flex flex-col lg:flex-row items-stretch lg:items-end gap-6 bg-neutral-900/20 p-4 rounded-2xl border border-neutral-800/50 backdrop-blur-md">
+      <div id="modelSelectors"
+        class="flex flex-col sm:flex-row items-stretch sm:items-end gap-6 flex-1 
         [&_.muted]:text-[10px] [&_.muted]:uppercase [&_.muted]:font-bold [&_.muted]:text-neutral-500 [&_.muted]:tracking-wider [&_.muted]:mb-1.5
         [&_select]:h-10 [&_select]:w-full [&_select]:lg:max-w-[320px] [&_select]:rounded-lg [&_select]:border [&_select]:border-neutral-700 [&_select]:bg-neutral-950 [&_select]:px-4 [&_select]:text-sm [&_select]:text-neutral-100 [&_select]:outline-none [&_select]:focus:border-indigo-500">
       </div>
 
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 shrink-0 lg:border-l lg:border-neutral-800 lg:pl-6">
+      <div
+        class="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 shrink-0 lg:border-l lg:border-neutral-800 lg:pl-6">
         <label class="flex flex-col flex-1">
           <span class="text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-1.5">Preset</span>
-          <select id="presetSelect" class="h-10 w-full sm:min-w-[240px] rounded-lg border border-neutral-700 bg-neutral-950 px-4 text-sm text-neutral-100 outline-none focus:border-indigo-500 transition-colors">
+          <select id="presetSelect"
+            class="h-10 w-full sm:min-w-[240px] rounded-lg border border-neutral-700 bg-neutral-950 px-4 text-sm text-neutral-100 outline-none focus:border-indigo-500 transition-colors">
           </select>
         </label>
-        <button id="savePresetBtn" class="h-10 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-8 text-[11px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-indigo-500/20">
+        <button id="savePresetBtn"
+          class="h-10 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-8 text-[11px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-indigo-500/20">
           SAVE
         </button>
       </div>
     </section>
 
     <main class="mt-8 flex flex-col gap-8">
-      
+
       <section class="rounded-2xl border border-neutral-800 bg-neutral-900/10 p-6">
-        <h2 class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">Plugin Slots</h2>
+        <h2
+          class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">
+          Plugin Slots</h2>
         <div id="slotsRow" class="flex flex-wrap gap-4"></div>
       </section>
 
       <section class="rounded-2xl border border-neutral-800 bg-neutral-900/10 p-6">
-        <h2 class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">Signal Chains</h2>
+        <h2
+          class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">
+          Signal Chains</h2>
         <div id="lanesRow" class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"></div>
       </section>
 
       <details class="group rounded-xl border border-neutral-900 bg-neutral-950/50">
-        <summary class="flex items-center cursor-pointer select-none p-4 text-[10px] font-bold uppercase tracking-widest text-neutral-700 hover:text-neutral-500">
+        <summary
+          class="flex items-center cursor-pointer select-none p-4 text-[10px] font-bold uppercase tracking-widest text-neutral-700 hover:text-neutral-500">
           <span class="mr-2 group-open:rotate-90 transition-transform">▶</span>
           Debug Console
         </summary>
-        <div id="debug" class="p-4 border-t border-neutral-900 font-mono text-[11px] text-neutral-600 max-h-40 overflow-y-auto"></div>
+        <div id="debug"
+          class="p-4 border-t border-neutral-900 font-mono text-[11px] text-neutral-600 max-h-40 overflow-y-auto"></div>
       </details>
 
     </main>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script defer src="/static/util.js"></script>
+  <script defer src="/static/api.js"></script>
+  <script defer src="/static/parse.js"></script>
+  <script defer src="/static/render.js"></script>
+  <script defer src="/static/app.js"></script>
+
 </body>
+
 </html>

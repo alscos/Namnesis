@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure we are at repo root even if called from elsewhere
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "=== NAMNESIS UI refresh ==="
+
+echo "[1/4] Building Tailwind (PostCSS + Tailwind v4)…"
+npx postcss web/static/css/tailwind.input.css \
+  -o web/static/tailwind.css \
+  --config .
+
+echo "    tailwind.css size: $(wc -c < web/static/tailwind.css) bytes"
+
+echo "[2/4] Building Go binary…"
+go build ./cmd/namnesis-ui-gateway/
+
+echo "[3/4] Installing binary…"
+sudo install -m 0755 namnesis-ui-gateway /usr/local/bin/namnesis-ui-gateway
+
+echo "[4/4] Restarting service…"
+sudo systemctl restart namnesis-ui-gateway
+
+echo "=== DONE: UI + backend refreshed ==="

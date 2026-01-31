@@ -1,0 +1,27 @@
+{
+  "name": "namnesis-ui-gateway",
+  "version": "1.0.0",
+  "description": "<p align=\"left\">   <img src=\"web/static/img/logo.svg\" alt=\"Namnesis UI\" width=\"140\"/> </p>",
+  "main": "tailwind.config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alscos/Namnesis.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alscos/Namnesis/issues"
+  },
+  "homepage": "https://github.com/alscos/Namnesis#readme",
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "postcss-cli": "^11.0.1",
+    "tailwindcss": "^4.1.18"
+  }
+}

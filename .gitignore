@@ -1,12 +1,26 @@
 # macOS / AppleDouble
 ._*
 .DS_Store
+Thumbs.db
+# --- Node / Tailwind build tooling (temporary, local only) ---
+node_modules/
+package-lock.json
+npm-debug.log*
+.npm/
+.npx/
 
 # build artifacts
 namnesis-ui-gateway
 *.exe
 *.out
 *.log
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+
+# --- Go build artifacts (if any leak locally) ---
+namnesis-ui-gateway
 
 # Downloaded build tools (not part of the product)
 tools/

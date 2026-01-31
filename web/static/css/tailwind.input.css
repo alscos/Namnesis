@@ -1,8 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* minimal sanity */
-html, body {
-  height: 100%;
-}
+/* Tell Tailwind v4 where your classes live (paths are relative to this file) */
+@source "../../../web/templates/**/*.html";
+@source "../../../web/templates/**/*.tmpl";
+@source "../../../web/static/**/*.js";
+
+/* Optional: still load your JS config (theme/plugins) if you use it */
+@config "../../../tailwind.config.js";
+
