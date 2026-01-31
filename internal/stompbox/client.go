@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"strconv"
 )
 
 type Client struct {
@@ -17,6 +18,30 @@ type Client struct {
 	ReadTimeout time.Duration
 	MaxBytes    int
 }
+func (c *Client) SetParam(plugin, param, value string) error {
+    v := value
+
+    // Quote sólo si hace falta (espacios, tabs o comillas)
+    if strings.ContainsAny(v, " \t\"") {
+        v = strconv.Quote(v)
+    }
+
+    resp, err := c.SendCommand("SetParam " + plugin + " " + param + " " + v)
+    if err != nil {
+        return err
+    }
+
+    // Si Stompbox respondió "Error ..." pero luego "Ok", no lo ignores
+    scanner := bufio.NewScanner(strings.NewReader(resp))
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+        if strings.HasPrefix(line, "Error") {
+            return fmt.Errorf(line)
+        }
+    }
+    return nil
+}
+
 
 func New(addr string) *Client {
 	return &Client{
@@ -149,7 +174,4 @@ func (c *Client) ListPresets() (string, error) {
 		return line == "Ok"
 	})
 }
-func (c *Client) SetParam(plugin, param, value string) error {
-	_, err := c.SendCommand("SetParam " + plugin + " " + param + " " + value)
-	return err
-}
+

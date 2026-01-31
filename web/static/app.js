@@ -62,31 +62,59 @@
       AutoWah: ['Level', 'Wah'],
       Wah: ['Wah'],
       HighLow: ['High', 'Low'],
-      'EQ-7': ['10.0k', '120', '4.5k', '400'],
+      // (optional) keep a fallback preferred for EQ-7 if you ever render it in pills
+      'EQ-7': ['100', '200', '400', '800', '1.6k', '3.2k', '6.4k', 'Vol'],
       'BEQ-7': ['50', '120', '400', '800', '1.6k', '4.5k', '10.0k', 'Vol'],
     };
 
     const preferred = PREFERRED[base] || [];
     for (const k of preferred) if (all.includes(k) && !out.includes(k)) out.push(k);
 
+    // Helper: recognize EQ band-ish keys
+    const looksEqBand = (k) => /^[0-9.]+k?$|^Vol$/i.test(k);
+
+    // Helper: sort EQ bands numerically, keep Vol last
+    const eqBandSortKey = (k) => {
+      if (/^Vol$/i.test(k)) return Number.POSITIVE_INFINITY;
+      const m = /^([0-9.]+)(k)?$/i.exec(k);
+      if (!m) return Number.POSITIVE_INFINITY - 1;
+      const num = parseFloat(m[1]);
+      const mult = m[2] ? 1000 : 1;
+      return num * mult;
+    };
+
+    // Collect additional numeric params not already included
+    const extraEqBands = [];
+    const extraKnobs = [];
+
     for (const k of all) {
       if (out.includes(k)) continue;
       const n = Number(pluginParams[k]);
       if (!Number.isFinite(n)) continue;
 
-      // Keep file params out of numeric list
       if (k === 'Model' || k === 'Impulse') continue;
 
-      // If it looks like an EQ band name (numbers / k / decimal), accept it
-      // Examples: "50", "120", "400", "1.6k", "4.5k", "10.0k", "Vol"
-      const looksEqBand = /^[0-9.]+k?$|^Vol$/i.test(k);
+      if (looksEqBand(k)) {
+        extraEqBands.push(k);
+        continue;
+      }
 
-      // Keep previous allowlist for "normal" knobs, but allow EQ bands too
-      if (!looksEqBand && !WRITABLE_NUMERIC_PARAMS.has(k)) continue;
-
-      out.push(k);
+      // keep previous allowlist for standard knobs
+      if (!WRITABLE_NUMERIC_PARAMS.has(k)) continue;
+      extraKnobs.push(k);
     }
 
+    // If it's an EQ plugin, prioritize its band list (sorted) before other knobs
+    if (base === 'BEQ-7' || base === 'EQ-7') {
+      extraEqBands.sort((a, b) => eqBandSortKey(a) - eqBandSortKey(b));
+      for (const k of extraEqBands) if (!out.includes(k)) out.push(k);
+      for (const k of extraKnobs) if (!out.includes(k)) out.push(k);
+    } else {
+      // non-EQ: just append extras in discovery order
+      for (const k of extraKnobs) if (!out.includes(k)) out.push(k);
+    }
+
+    // Hard cap to keep pills compact
     return out.slice(0, 8);
   }
 
@@ -502,6 +530,8 @@
           paramMetaForThisPlugin: paramMetaMap?.[baseType] || paramMetaMap?.[pluginName] || {},
           pickKeys: pickPluginKeys,
           isBooleanParam,
+          fileTrees: trees,
+          onFileParamCommit: (pl, pa, val) => A.setFileParam(pl, pa, val),
           WRITABLE_NUMERIC_PARAMS,
           onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
           onPluginToggleResync: () => refreshUI(),

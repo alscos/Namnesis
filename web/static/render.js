@@ -51,6 +51,45 @@
         return wrap;
     };
 
+    R.renderChainsFromProgram = function renderChainsFromProgram(elLanes, program, pluginMetaByName, paramMetaByBaseType, buildPill) {
+        elLanes.textContent = '';
+
+        const chainOrder = ['Input', 'FxLoop', 'Output'];
+        const chains = program?.chains || {};
+        const paramsByPlugin = program?.params || {};
+
+        for (const chainName of chainOrder) {
+            const lane = document.createElement('div');
+            lane.className = 'lane';
+
+            const title = document.createElement('h3');
+            title.textContent = chainName;
+            lane.appendChild(title);
+
+            const items = chains[chainName] || [];
+            if (!items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'muted';
+                empty.textContent = '(empty)';
+                lane.appendChild(empty);
+                elLanes.appendChild(lane);
+                continue;
+            }
+
+            for (const pluginName of items) {
+                const p = paramsByPlugin[pluginName] || {};
+                const baseType = pluginName.replace(/_\d+$/, '');
+                const meta = pluginMetaByName?.[baseType] || pluginMetaByName?.[pluginName] || null;
+                lane.appendChild(buildPill(pluginName, p, meta, baseType));
+            }
+
+            elLanes.appendChild(lane);
+        }
+    };
+
+
+
+
     R.buildReadOnlyRow = function buildReadOnlyRow(paramName, raw) {
         const row = document.createElement('div');
         row.className = 'kv';
@@ -203,16 +242,16 @@
             }
         });
     };
-
     R.buildPluginPill = function buildPluginPill(opts) {
         const {
             pluginName, pluginParams, bgColor, fgColor,
             paramMetaForThisPlugin,
+            fileTrees,               // NEW: map "ConvoReverb.Impulse" -> ["...", "..."]
             pickKeys,
             isBooleanParam,
             WRITABLE_NUMERIC_PARAMS,
-            onParamCommit,      // (plugin, param, val) => Promise
-            onPluginToggleResync // () => Promise
+            onParamCommit,           // (plugin, param, val) => Promise
+            onPluginToggleResync     // () => Promise
         } = opts;
 
         const el = document.createElement('div');
@@ -235,11 +274,11 @@
         state.type = "button";
         state.className = 'pill-state ' + (isOn ? 'on' : 'off');
         state.innerHTML = `
-      <div class="switch-container">
-        <div class="switch-track"></div>
-        <div class="switch-thumb"></div>
-      </div>
-    `;
+    <div class="switch-container">
+      <div class="switch-track"></div>
+      <div class="switch-thumb"></div>
+    </div>
+  `;
         state.setAttribute("aria-label", `Toggle ${pluginName}`);
         state.setAttribute("aria-pressed", isOn ? "true" : "false");
 
@@ -254,27 +293,73 @@
         body.className = 'pill-body';
 
         const keys = pickKeys(pluginName, pluginParams);
+
+        const baseType = pluginName.replace(/_\d+$/, '');
+
         for (const k of keys) {
             const raw = pluginParams?.[k];
             const n = Number(raw);
             const meta = paramMetaForThisPlugin?.[k] || null;
 
-            const allow =
-                !meta?.isOutput &&
-                meta &&
-                String(meta.type || '').toLowerCase() !== 'bool' &&
-                Number.isFinite(meta.min) &&
-                Number.isFinite(meta.max) &&
-                k !== 'Model' &&
-                k !== 'Impulse';
-
-
+            // --- 1) Output-only params are always read-only
             if (meta?.isOutput) {
                 body.appendChild(R.buildReadOnlyRow(k, raw));
                 continue;
             }
 
-            if (allow && Number.isFinite(n) && isBooleanParam(meta, k)) {
+            // --- 2) File params (Model / Impulse) => dropdown if we have tree
+            // In DumpConfig trees are keyed by BASE type (e.g. "ConvoReverb.Impulse"),
+            // while program instances are "ConvoReverb_2", "ConvoReverb_3", etc.
+            const metaType = String(meta?.type || '').toLowerCase();
+            const isFileParam = (k === 'Model' || k === 'Impulse') && metaType === 'file';
+
+            if (isFileParam) {
+                const keyBase = `${baseType}.${k}`;       // e.g. "ConvoReverb.Impulse"
+                const keyExact = `${pluginName}.${k}`;    // fallback if ever provided
+                const options = (fileTrees && (fileTrees[keyBase] || fileTrees[keyExact])) || [];
+
+                if (options.length) {
+                    // buildDropdown(label, options, current, onChange, state)
+                    const ddState = { isProgrammaticModelUpdate: false };
+                    const row = R.buildDropdown(k, options, raw, async (v) => {
+                        try {
+                            // NOTE: setFileParam is usually the correct endpoint for file params,
+                            // but your onParamCommit currently targets numeric only.
+                            // So we call a dedicated hook if present, else fallback to onParamCommit.
+                            if (opts.onFileParamCommit) {
+                                await opts.onFileParamCommit(pluginName, k, v);  // instancia: ConvoReverb_2
+                            } else {
+                                // last-resort fallback (won't work if backend expects /api/param/file)
+                                await onParamCommit(pluginName, k, v);
+                            }
+                            await onPluginToggleResync();
+                        } catch (err) {
+                            console.error(err);
+                            alert(err?.message || String(err));
+                        }
+                    }, ddState);
+
+                    body.appendChild(row);
+                } else {
+                    body.appendChild(R.buildReadOnlyRow(k, raw));
+                }
+                continue;
+            }
+
+            // --- 3) Decide if numeric slider/toggle is allowed
+            const allow =
+                !meta?.isOutput &&
+                meta &&
+                metaType !== 'bool' &&
+                Number.isFinite(meta.min) &&
+                Number.isFinite(meta.max) &&
+                k !== 'Model' &&
+                k !== 'Impulse';
+
+            // NOTE: your current boolean block is unreachable because allow excludes bool.
+            // We'll keep your intended behaviour: if bool -> toggle.
+            const isBool = isBooleanParam(meta, k);
+            if (isBool && Number.isFinite(n)) {
                 body.appendChild(R.buildBooleanToggleRow(pluginName, k, n, (val) => onParamCommit(pluginName, k, val)));
                 continue;
             }
@@ -283,11 +368,9 @@
                 allow &&
                 Number.isFinite(n) &&
                 meta &&
-                String(meta.type || '').toLowerCase() !== 'bool' &&
+                metaType !== 'bool' &&
                 Number.isFinite(meta.min) &&
-                Number.isFinite(meta.max) &&
-                k !== 'Model' &&
-                k !== 'Impulse';
+                Number.isFinite(meta.max);
 
             if (canSlider) {
                 body.appendChild(R.buildNumericSliderRow(pluginName, k, n, meta, (val) => onParamCommit(pluginName, k, val)));
@@ -301,42 +384,6 @@
         return el;
     };
 
-    R.renderChainsFromProgram = function renderChainsFromProgram(elLanes, program, pluginMetaByName, paramMetaByBaseType, buildPill) {
-        elLanes.textContent = '';
-
-        const chainOrder = ['Input', 'FxLoop', 'Output'];
-        const chains = program?.chains || {};
-        const paramsByPlugin = program?.params || {};
-
-        for (const chainName of chainOrder) {
-            const lane = document.createElement('div');
-            lane.className = 'lane';
-
-            const title = document.createElement('h3');
-            title.textContent = chainName;
-            lane.appendChild(title);
-
-            const items = chains[chainName] || [];
-            if (!items.length) {
-                const empty = document.createElement('div');
-                empty.className = 'muted';
-                empty.textContent = '(empty)';
-                lane.appendChild(empty);
-                elLanes.appendChild(lane);
-                continue;
-            }
-
-            for (const pluginName of items) {
-                const p = paramsByPlugin[pluginName] || {};
-                const baseType = pluginName.replace(/_\d+$/, '');
-                const meta = pluginMetaByName?.[baseType] || pluginMetaByName?.[pluginName] || null;
-
-                lane.appendChild(buildPill(pluginName, p, meta, baseType));
-            }
-
-            elLanes.appendChild(lane);
-        }
-    };
 
     R.renderSlotsFromDumpProgram = function renderSlotsFromDumpProgram(elSlots, program) {
         const entries = Object.entries(program?.slots || {});

@@ -6,7 +6,8 @@ import (
 	"time"
 	"strings"
 	"github.com/go-chi/chi/v5"
-	
+	"regexp"
+
 	"namnesis-ui-gateway/internal/stompbox"
 )
 
@@ -160,6 +161,8 @@ type setFileParamRequest struct {
 	Param  string `json:"param"`
 	Value  string `json:"value"`
 }
+
+
 func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 	var req setFileParamRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -183,24 +186,29 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, ok := cfg.Plugins[req.Plugin]
+	// IMPORTANT: DumpConfig is keyed by *base plugin type* (e.g. "ConvoReverb"),
+	// while runtime params can reference instances (e.g. "ConvoReverb_2").
+	pluginInstance := req.Plugin
+	base := regexp.MustCompile(`_\d+$`).ReplaceAllString(pluginInstance, "")
+
+	p, ok := cfg.Plugins[base]
 	if !ok {
-		http.Error(w, "unknown plugin: "+req.Plugin, http.StatusBadRequest)
+		http.Error(w, "unknown plugin: "+pluginInstance, http.StatusBadRequest)
 		return
 	}
+
 	paramDef, ok := p.Params[req.Param]
 	if !ok {
-		http.Error(w, "unknown param for plugin: "+req.Plugin+"."+req.Param, http.StatusBadRequest)
+		http.Error(w, "unknown param for plugin: "+pluginInstance+"."+req.Param, http.StatusBadRequest)
 		return
 	}
 	if paramDef.Type != "File" {
-		http.Error(w, "param is not a File type: "+req.Plugin+"."+req.Param, http.StatusBadRequest)
+		http.Error(w, "param is not a File type: "+pluginInstance+"."+req.Param, http.StatusBadRequest)
 		return
 	}
 
 	// If we have a file tree for this param, ensure the value is valid.
-	// (Your ParseDumpConfig currently builds FileTrees; if it doesn’t for some params yet, we allow setting anyway.)
-	// If we have a file tree for this param, ensure the value is valid.
+	// If ParseDumpConfig didn't build a tree for this param, we allow setting anyway.
 	if p.FileTrees != nil {
 		if ft, ok := p.FileTrees[req.Param]; ok && ft != nil {
 			if !fileTreeContains(ft, req.Value) {
@@ -210,14 +218,13 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-
-	// 2) Apply to running Stompbox
-	if err := s.sb.SetParam(req.Plugin, req.Param, req.Value); err != nil {
+	// 2) Apply to running Stompbox (apply to the *instance*, not the base type)
+	if err := s.sb.SetParam(pluginInstance, req.Param, req.Value); err != nil {
 		http.Error(w, "setparam error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// 3) Return OK + optional refreshed program (useful for UI to confirm)
+	// 3) Return OK
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":     true,
@@ -229,17 +236,17 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 
 // helper
 func fileTreeContains(ft *stompbox.FileTreeDef, value string) bool {
-    for _, it := range ft.Items {
-        if it == value {
-            return true
-        }
-    }
-    for _, opt := range ft.Options { // if Options exists in your types.go
-        if opt.Value == value {
-            return true
-        }
-    }
-    return false
+	for _, it := range ft.Items {
+		if it == value {
+			return true
+		}
+	}
+	for _, opt := range ft.Options { // si Options existe en tu type
+		if opt.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 
