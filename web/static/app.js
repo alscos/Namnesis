@@ -9,12 +9,21 @@
   const elLanes = document.getElementById('lanesRow') || document.getElementById('lanesRowMobile');
   const elDebug = document.getElementById('debug') || document.getElementById('debugMobile');
   const elModelSelectors = document.getElementById('modelSelectors');
+  const elCore = document.getElementById('coreRow');
   const savePresetBtn = document.getElementById("savePresetBtn");
 
   const state = {
     presetChangeHandlerBound: false,
     isProgrammaticPresetUpdate: false,
     isProgrammaticModelUpdate: false,
+    core: {
+      inputGain: null,
+      inputMuted: false,
+      lastInputGain: null,
+      masterVolume: null,
+      masterMuted: false,
+      lastMasterVolume: null,
+    },
   };
 
   const WRITABLE_NUMERIC_PARAMS = new Set([
@@ -54,6 +63,7 @@
       Wah: ['Wah'],
       HighLow: ['High', 'Low'],
       'EQ-7': ['10.0k', '120', '4.5k', '400'],
+      'BEQ-7': ['50', '120', '400', '800', '1.6k', '4.5k', '10.0k', 'Vol'],
     };
 
     const preferred = PREFERRED[base] || [];
@@ -63,9 +73,20 @@
       if (out.includes(k)) continue;
       const n = Number(pluginParams[k]);
       if (!Number.isFinite(n)) continue;
-      if (!WRITABLE_NUMERIC_PARAMS.has(k)) continue;
+
+      // Keep file params out of numeric list
+      if (k === 'Model' || k === 'Impulse') continue;
+
+      // If it looks like an EQ band name (numbers / k / decimal), accept it
+      // Examples: "50", "120", "400", "1.6k", "4.5k", "10.0k", "Vol"
+      const looksEqBand = /^[0-9.]+k?$|^Vol$/i.test(k);
+
+      // Keep previous allowlist for "normal" knobs, but allow EQ bands too
+      if (!looksEqBand && !WRITABLE_NUMERIC_PARAMS.has(k)) continue;
+
       out.push(k);
     }
+
     return out.slice(0, 8);
   }
 
@@ -149,6 +170,280 @@
     });
   }
 
+  function fmtDb(x) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return String(x);
+    return (n >= 0 ? '+' : '') + n.toFixed(1) + ' dB';
+  }
+
+  function buildCoreCard(title) {
+    const card = document.createElement('section');
+    card.className = 'rounded-xl border border-neutral-800 bg-neutral-950/40 p-4 flex flex-col gap-3';
+
+    const h = document.createElement('div');
+    h.className = 'text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600';
+    h.textContent = title;
+
+    card.appendChild(h);
+    return card;
+  }
+
+  function buildMuteToggle(labelText, initialOn, onToggle) {
+    const wrap = document.createElement('div');
+    wrap.className = 'flex items-center justify-between gap-3';
+
+    const lab = document.createElement('div');
+    lab.className = 'text-[10px] uppercase font-bold tracking-widest text-neutral-500';
+    lab.textContent = labelText;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pill-state pill-param-toggle ' + (initialOn ? 'on' : 'off');
+    btn.innerHTML = `
+      <div class="switch-container">
+        <div class="switch-track"></div>
+        <div class="switch-thumb"></div>
+      </div>
+    `;
+    btn.setAttribute('aria-label', labelText);
+    btn.setAttribute('aria-pressed', initialOn ? 'true' : 'false');
+
+    btn.addEventListener('click', async () => {
+      const current = (btn.getAttribute('aria-pressed') === 'true');
+      const next = !current;
+
+      // optimistic
+      btn.classList.toggle('on', next);
+      btn.classList.toggle('off', !next);
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+
+      try {
+        await onToggle(next);
+      } catch (e) {
+        // rollback
+        btn.classList.toggle('on', current);
+        btn.classList.toggle('off', !current);
+        btn.setAttribute('aria-pressed', current ? 'true' : 'false');
+        console.error(e);
+        alert(e?.message || String(e));
+      }
+    });
+
+    wrap.appendChild(lab);
+    wrap.appendChild(btn);
+    return wrap;
+  }
+  function buildCommitVSlider(labelText, value, meta, onCommit) {
+    const wrap = document.createElement('div');
+    wrap.className = 'eq7-fader';
+
+    const lab = document.createElement('div');
+    lab.className = 'eq7-label text-[10px] uppercase font-bold tracking-widest text-neutral-500';
+    lab.textContent = labelText;
+
+    const vv = document.createElement('div');
+    vv.className = 'eq7-value text-[11px] font-mono text-neutral-300';
+    vv.textContent = fmtDb(value);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'eq7-vslider';
+
+    const min = Number.isFinite(meta?.min) ? meta.min : -15;
+    const max = Number.isFinite(meta?.max) ? meta.max : 15;
+    const step = Number.isFinite(meta?.step) ? meta.step : 0.1;
+
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(Number(value ?? 0));
+
+    // UI-only while dragging
+    slider.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      vv.textContent = fmtDb(v);
+    });
+
+    let lastCommitted = slider.value;
+    const commit = async () => {
+      if (slider.value === lastCommitted) return;
+      lastCommitted = slider.value;
+      const v = parseFloat(slider.value);
+      await onCommit(v);
+    };
+
+    // commit only on release / confirm
+    slider.addEventListener('change', () => commit());
+    slider.addEventListener('pointerup', () => commit());
+    slider.addEventListener('keyup', (ev) => { if (ev.key === 'Enter') commit(); });
+
+    // Slot to constrain the rotated range input so it doesn't cover labels/values
+    const sliderSlot = document.createElement('div');
+    sliderSlot.className = 'eq7-slider-slot';
+    sliderSlot.appendChild(slider);
+
+    wrap.appendChild(lab);
+    wrap.appendChild(sliderSlot);
+    wrap.appendChild(vv);
+    return wrap;
+  }
+
+
+
+  function buildCommitFaderRow(labelText, value, meta, onCommit) {
+    const row = document.createElement('div');
+    row.className = 'flex flex-col gap-2';
+
+    const top = document.createElement('div');
+    top.className = 'flex items-baseline justify-between';
+
+    const lab = document.createElement('div');
+    lab.className = 'text-[10px] uppercase font-bold tracking-widest text-neutral-500';
+    lab.textContent = labelText;
+
+    const vv = document.createElement('div');
+    vv.className = 'text-[11px] font-mono text-neutral-300';
+    vv.textContent = fmtDb(value);
+
+    top.appendChild(lab);
+    top.appendChild(vv);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'w-full accent-indigo-500';
+
+    const min = Number.isFinite(meta?.min) ? meta.min : -40;
+    const max = Number.isFinite(meta?.max) ? meta.max : 40;
+    const step = Number.isFinite(meta?.step) ? meta.step : 0.1;
+
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(Number(value ?? 0));
+
+    // UI only while dragging
+    slider.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      vv.textContent = fmtDb(v);
+    });
+
+    let lastCommitted = slider.value;
+    const commit = async () => {
+      if (slider.value === lastCommitted) return;
+      lastCommitted = slider.value;
+      const v = parseFloat(slider.value);
+      await onCommit(v);
+    };
+
+    // commit only on release / confirm
+    slider.addEventListener('change', () => commit());
+    slider.addEventListener('pointerup', () => commit());
+    slider.addEventListener('keyup', (ev) => {
+      if (ev.key === 'Enter') commit();
+    });
+
+    row.appendChild(top);
+    row.appendChild(slider);
+    return row;
+  }
+
+  function renderCore(el, program, paramMetaMap) {
+    if (!el) return;
+    el.innerHTML = '';
+
+    // Input/Master are fixed engine modules and are NOT serialized in DumpProgram.
+    // We keep a local shadow state and only write-back on user action.
+
+    // --- INPUT ---
+    const inputCard = buildCoreCard('INPUT');
+    const metaGain = paramMetaMap?.Input?.Gain || null;
+    const minGain = Number.isFinite(metaGain?.min) ? metaGain.min : -40;
+
+    inputCard.appendChild(buildMuteToggle('Mute', state.core.inputMuted, async (muted) => {
+      if (muted) {
+        state.core.lastInputGain = state.core.inputGain;
+        state.core.inputMuted = true;
+        state.core.inputGain = minGain;
+        await A.setNumericParamQueued('Input', 'Gain', minGain);
+      } else {
+        state.core.inputMuted = false;
+        const restore = Number.isFinite(state.core.lastInputGain) ? state.core.lastInputGain : 0;
+        state.core.inputGain = restore;
+        await A.setNumericParamQueued('Input', 'Gain', restore);
+      }
+      await refreshUI();
+    }));
+
+    inputCard.appendChild(buildCommitFaderRow('Gain', state.core.inputGain ?? 0, metaGain, async (v) => {
+      state.core.inputMuted = false;
+      state.core.inputGain = v;
+      state.core.lastInputGain = v;
+      await A.setNumericParamQueued('Input', 'Gain', v);
+      await refreshUI();
+    }));
+
+    // --- EQ-7 (CORE) ---
+    const eqCard = buildCoreCard('EQ-7');
+
+    const eqParams = program?.params?.['EQ-7'] || null;
+    if (!eqParams) {
+      const msg = document.createElement('div');
+      msg.className = 'text-xs text-neutral-500';
+      msg.textContent = 'EQ-7 not present (Tonestack slot not loaded).';
+      eqCard.appendChild(msg);
+    } else {
+      const grid = document.createElement('div');
+      grid.className = 'eq7-grid';
+
+
+      const bands = ['100', '200', '400', '800', '1.6k', '3.2k', '6.4k', 'Vol'];
+
+      for (const b of bands) {
+        const meta = paramMetaMap?.['EQ-7']?.[b] || null;
+        const cur = Number(eqParams[b]);
+        grid.appendChild(buildCommitVSlider(b, Number.isFinite(cur) ? cur : (meta?.def ?? 0), meta, async (v) => {
+          await A.setNumericParamQueued('EQ-7', b, v);
+          await refreshUI();
+        }));
+      }
+
+      eqCard.appendChild(grid);
+    }
+
+
+    // --- MASTER ---
+    const masterCard = buildCoreCard('MASTER');
+    const metaVol = paramMetaMap?.Master?.Volume || null;
+    const minVol = Number.isFinite(metaVol?.min) ? metaVol.min : -40;
+
+    masterCard.appendChild(buildMuteToggle('Mute', state.core.masterMuted, async (muted) => {
+      if (muted) {
+        state.core.lastMasterVolume = state.core.masterVolume;
+        state.core.masterMuted = true;
+        state.core.masterVolume = minVol;
+        await A.setNumericParamQueued('Master', 'Volume', minVol);
+      } else {
+        state.core.masterMuted = false;
+        const restore = Number.isFinite(state.core.lastMasterVolume) ? state.core.lastMasterVolume : 0;
+        state.core.masterVolume = restore;
+        await A.setNumericParamQueued('Master', 'Volume', restore);
+      }
+      await refreshUI();
+    }));
+
+    masterCard.appendChild(buildCommitFaderRow('Volume', state.core.masterVolume ?? 0, metaVol, async (v) => {
+      state.core.masterMuted = false;
+      state.core.masterVolume = v;
+      state.core.lastMasterVolume = v;
+      await A.setNumericParamQueued('Master', 'Volume', v);
+      await refreshUI();
+    }));
+
+    el.appendChild(inputCard);
+    el.appendChild(eqCard);
+    el.appendChild(masterCard);
+  }
+
   async function refreshUI() {
     try {
       const { res, data } = await A.fetchState();
@@ -162,6 +457,18 @@
       const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
 
       const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
+
+      // --- CORE fixed params (Input / Master) ---
+      // These fixed engine modules are not serialized in DumpProgram.
+      // Initialize once from DumpConfig defaults (or 0 dB fallback).
+      if (state.core.inputGain === null) {
+        const defIn = paramMetaMap?.Input?.Gain?.def;
+        state.core.inputGain = Number.isFinite(defIn) ? defIn : 0;
+      }
+      if (state.core.masterVolume === null) {
+        const defOut = paramMetaMap?.Master?.Volume?.def;
+        state.core.masterVolume = Number.isFinite(defOut) ? defOut : 0;
+      }
 
       setPresetDropdown(presetList, program.preset);
 
@@ -183,6 +490,8 @@
           await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
         }, state)
       );
+
+      renderCore(elCore, program, paramMetaMap);
 
       const buildPill = (pluginName, pluginParams, meta, baseType) => {
         return R.buildPluginPill({

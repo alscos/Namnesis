@@ -485,3 +485,76 @@ select {
   padding-top: 2px;
   padding-bottom: 2px;
 }
+/* ===== CORE EQ-7 ===== */
+.eq7-grid{
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+@media (max-width: 640px){
+  .eq7-grid{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.eq7-fader{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Vertical range input (rotate trick, consistent) */
+.eq7-vslider{
+  width: 160px;   /* this becomes the “height” once rotated */
+  height: 24px;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  /* keep it clickable */
+  touch-action: none;
+}
+
+/* Optional: tighten labels a bit */
+.eq7-fader > div:first-child{
+  letter-spacing: .2em;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.eq7-fader{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+
+.eq7-slider-slot{
+  position: relative;
+  width: 28px;      /* ancho real del canal */
+  height: 170px;    /* “alto” visible del fader */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.eq7-vslider{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform: translate(-50%,-50%) rotate(-90deg);
+  transform-origin:center;
+  width: 170px;     /* se convierte en alto tras rotar */
+  height: 24px;
+  z-index: 1;
+}
+
+/* textos por encima, nunca tapados */
+.eq7-fader > .eq7-label,
+.eq7-fader > .eq7-value{
+  position: relative;
+  z-index: 2;
+  pointer-events: none; /* para que no “roben” el drag */
+}
