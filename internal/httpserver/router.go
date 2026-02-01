@@ -8,6 +8,7 @@ import (
 
 	"namnesis-ui-gateway/internal/config"
 	"namnesis-ui-gateway/internal/stompbox"
+	"namnesis-ui-gateway/internal/sysinfo"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -22,12 +23,14 @@ type Server struct {
 	cfg config.Config
 	sb  *stompbox.Client
 	tpl *template.Template
+	sys *sysinfo.Collector
 }
 
 func NewRouter(deps RouterDeps) (http.Handler, error) {
 	s := &Server{
 		cfg: deps.Config,
 		sb:  deps.SB,
+		sys: sysinfo.NewCollector(),
 	}
 
 	tplPath := filepath.Join("web", "templates", "*.html")
@@ -65,8 +68,11 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Get("/api/debug/program-parsed", s.handleProgramParsedDebug)
 	r.Get("/api/presets", s.handlePresetsRaw)
 	r.Get("/api/state", s.handleState)
+	r.Get("/api/system", s.handleSystem)
 	r.Get("/ui", s.handleUIPage)
 	r.Post("/api/preset/load", s.handlePresetLoad)
+	r.Post("/api/preset/save-as", s.handlePresetSaveAs)
+	r.Post("/api/preset/delete", s.handlePresetDelete)
 	r.Get("/api/debug/config-parsed", s.handleConfigParsedDebug)
 	r.Post("/api/param/file", s.handleSetFileParam)
 	r.Post("/api/preset/save", s.handlePresetSave)

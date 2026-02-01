@@ -18,6 +18,27 @@ type Client struct {
 	ReadTimeout time.Duration
 	MaxBytes    int
 }
+// quoteIfNeeded quotes a token only when required (spaces/tabs/quotes).
+// This mirrors the behavior used in SetParam and matches Stompbox parsing with std::quoted.
+func quoteIfNeeded(s string) string {
+	if strings.ContainsAny(s, " \t\"") {
+		return strconv.Quote(s)
+	}
+	return s
+}
+
+// return first "Error ..." line if present, even if protocol ends with "Ok"
+func firstProtocolError(resp string) error {
+	scanner := bufio.NewScanner(strings.NewReader(resp))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "Error") {
+			return fmt.Errorf(line)
+		}
+	}
+	return nil
+}
+
 func (c *Client) SetParam(plugin, param, value string) error {
     v := value
 
@@ -42,6 +63,14 @@ func (c *Client) SetParam(plugin, param, value string) error {
     return nil
 }
 
+func (c *Client) DeletePreset(name string) error {
+n := quoteIfNeeded(name)
+	resp, err := c.SendCommand("DeletePreset " + n)
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
+}
 
 func New(addr string) *Client {
 	return &Client{
@@ -54,12 +83,20 @@ func New(addr string) *Client {
 func (c *Client) LoadPreset(name string) error {
     // Whatever you already use for sending commands (WriteLine / Do / SendCommand)
     // The TCP line should be: LoadPreset <presetname>
-    _, err := c.SendCommand("LoadPreset " + name)
-    return err
+n := quoteIfNeeded(name)
+	resp, err := c.SendCommand("LoadPreset " + n)
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
 }
 func (c *Client) SavePreset(name string) error {
-	_, err := c.SendCommand("SavePreset " + name)
-	return err
+	n := quoteIfNeeded(name)
+		resp, err := c.SendCommand("SavePreset " + n)
+		if err != nil {
+			return err
+		}
+		return firstProtocolError(resp)	
 }
 
 // doUntil sends a single command (must include \r\n) and reads lines until stop(line,state) returns true.

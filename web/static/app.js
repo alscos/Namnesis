@@ -11,6 +11,8 @@
   const elModelSelectors = document.getElementById('modelSelectors');
   const elCore = document.getElementById('coreRow');
   const savePresetBtn = document.getElementById("savePresetBtn");
+  const savePresetAsBtn = document.getElementById("savePresetAsBtn");
+  const deletePresetBtn = document.getElementById("deletePresetBtn");
 
   const state = {
     presetChangeHandlerBound: false,
@@ -36,6 +38,31 @@
     'FrqWidth', 'Shape', 'Delay', 'HiLo', 'High', 'Low',
     'Drive', 'Decay', 'Size'
   ]);
+  async function postJSON(url, body) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '');
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    const txt = await res.text().catch(() => '');
+    if (!txt) return {};
+    try { return JSON.parse(txt); } catch { return { ok: true }; }
+  }
+  function disableBtn(btn) {
+    if (!btn) return;
+    btn.disabled = true;
+    btn.classList.add("opacity-50", "cursor-not-allowed");
+  }
+
+  function enableBtn(btn) {
+    if (!btn) return;
+    btn.disabled = false;
+    btn.classList.remove("opacity-50", "cursor-not-allowed");
+  }
 
   function pickPluginKeys(pluginName, pluginParams) {
     const base = pluginName.replace(/_\d+$/, '');
@@ -185,18 +212,76 @@
     savePresetBtn.addEventListener("click", async () => {
       const preset = elPreset?.value || "";
       try {
-        savePresetBtn.disabled = true;
+        disableBtn(savePresetBtn);
+
         await A.savePreset(preset);
         await refreshUI();
-        elStatus.textContent = `Saved ${preset || '(active)'}`;
+
+        elStatus.textContent = `Saved ${preset || "(active)"}`;
       } catch (err) {
         console.error(err);
         elStatus.textContent = `Save failed: ${err.message || err}`;
       } finally {
-        savePresetBtn.disabled = false;
+        enableBtn(savePresetBtn);
       }
     });
+
   }
+
+  if (savePresetAsBtn) {
+    savePresetAsBtn.addEventListener("click", async () => {
+      const current = elPreset?.value || "";
+      const suggested = current && current !== "---" ? current : "";
+      const name = window.prompt("Save As preset name:", suggested);
+      if (!name) return;
+
+      try {
+        disableBtn(savePresetAsBtn);
+
+        await postJSON("/api/preset/save-as", { name });
+        await refreshUI();
+
+        if (elPreset) elPreset.value = name;
+        elStatus.textContent = `Saved As ${name}`;
+      } catch (err) {
+        console.error(err);
+        elStatus.textContent = `Save As failed: ${err.message || err}`;
+      } finally {
+        enableBtn(savePresetAsBtn);
+      }
+    });
+
+  }
+
+  if (deletePresetBtn) {
+    deletePresetBtn.addEventListener("click", async () => {
+      const preset = elPreset?.value || "";
+      if (!preset || preset === "---") {
+        elStatus.textContent = "Delete failed: no preset selected";
+        return;
+      }
+
+      if (!window.confirm(`Delete preset "${preset}"? This cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        disableBtn(deletePresetBtn);
+
+        await postJSON("/api/preset/delete", { name: preset });
+        await refreshUI();
+
+        elStatus.textContent = `Deleted ${preset}`;
+      } catch (err) {
+        console.error(err);
+        elStatus.textContent = `Delete failed: ${err.message || err}`;
+      } finally {
+        enableBtn(deletePresetBtn);
+      }
+    });
+
+  }
+
 
   function fmtDb(x) {
     const n = Number(x);
@@ -316,6 +401,25 @@
     return wrap;
   }
 
+  function extractAudioIFName(asoundCards) {
+    if (!Array.isArray(asoundCards) || asoundCards.length === 0) return "—";
+
+    // Primera línea de la primera tarjeta
+    const line = asoundCards[0];
+
+    // Caso típico: "...: USB-Audio - Jogg USB Audio"
+    const m = line.match(/-\s(.+)$/);
+    if (m) {
+      // Ej: "Jogg USB Audio" → "Jogg"
+      return m[1].replace(/USB Audio/i, "").trim();
+    }
+
+    // Fallback: lo que haya tras el colon
+    const m2 = line.match(/:\s(.+)$/);
+    if (m2) return m2[1].trim();
+
+    return "—";
+  }
 
 
   function buildCommitFaderRow(labelText, value, meta, onCommit) {
@@ -471,6 +575,83 @@
     el.appendChild(eqCard);
     el.appendChild(masterCard);
   }
+  async function refreshSystemStrip() {
+    try {
+      const r = await fetch("/api/system");
+      const s = await r.json();
+
+      // READY / WARN / FAIL
+      let state = "READY";
+      let cls = "text-emerald-400";
+
+      if (!s.jack?.running) {
+        state = "FAIL"; cls = "text-rose-500";
+      } else if (
+        s.jack?.xruns_delta > 0 ||
+        s.routing?.ok === false ||
+        s.midi?.connected === false
+      ) {
+        state = "WARN"; cls = "text-amber-400";
+      }
+
+      const readyEl = document.getElementById("sysReady");
+      readyEl.textContent = state;
+      readyEl.className = `font-black ${cls}`;
+
+      // XRuns
+      document.getElementById("sysXruns").textContent =
+        `XRUNS ${s.jack.xruns} (+${s.jack.xruns_delta})`;
+
+      // Latency (play-feel estimate): (buf * periods) / sr
+      const sr = s.jack?.sr || 48000;
+      const buf = s.jack?.buf || 0;
+      const per = s.jack?.periods || 0;
+
+      let latMs = 0;
+      if (sr > 0 && buf > 0 && per > 0) {
+        latMs = (buf * per / sr) * 1000;
+      }
+
+      document.getElementById("sysLatency").textContent =
+        `LAT ${latMs.toFixed(1)}ms`;
+
+
+      // MIDI
+      const midiEl = document.getElementById("sysMidi");
+
+      let midiState = "fail";
+      let midiText = "🎹✖";
+
+      if (s.midi?.connected) {
+        midiState = "ok";
+        midiText = "🎹✓";
+      } else if ((s.midi?.alsa?.length || 0) > 0) {
+        // hay dispositivos MIDI, pero no están conectados a stompbox
+        midiState = "warn";
+        midiText = "🎹!";
+      }
+
+      midiEl.textContent = midiText;
+      midiEl.className = "font-black text-[11px] uppercase tracking-widest";
+
+      if (midiState === "ok") {
+        midiEl.classList.add("text-emerald-400");
+      } else if (midiState === "warn") {
+        midiEl.classList.add("text-amber-400");
+      } else {
+        midiEl.classList.add("text-rose-500");
+      }
+
+      // Audio IF
+      const ifName = extractAudioIFName(s.audioif?.asound_cards);
+      document.getElementById("sysIF").textContent = `IF ${ifName}`;
+
+
+    } catch (e) {
+      document.getElementById("sysReady").textContent = "FAIL";
+    }
+  }
+  setInterval(refreshSystemStrip, 1000);
 
   async function refreshUI() {
     try {

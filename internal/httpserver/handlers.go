@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"errors"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 
 	"namnesis-ui-gateway/internal/stompbox"
+	
 )
 
 func (s *Server) handleDumpConfigRaw(w http.ResponseWriter, r *http.Request) {
@@ -317,6 +319,80 @@ func (s *Server) handlePresetSave(w http.ResponseWriter, r *http.Request) {
 }
 
 
+type presetNameRequest struct {
+	Name string `json:"name"`
+}
+
+func validatePresetName(name string) error {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return errors.New("empty")
+	}
+	// Avoid path traversal / paths. Presets are treated as filenames by Stompbox.
+	if strings.ContainsAny(n, "/\\") || strings.Contains(n, "..") {
+		return errors.New("path separators not allowed")
+	}
+	// Avoid NUL + control chars
+	for _, r := range n {
+		if r == 0 || r < 0x20 {
+			return errors.New("control chars not allowed")
+		}
+	}
+	if len(n) > 200 {
+		return errors.New("too long")
+	}
+	return nil
+}
+
+func (s *Server) handlePresetSaveAs(w http.ResponseWriter, r *http.Request) {
+	var req presetNameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if err := validatePresetName(name); err != nil {
+		http.Error(w, "invalid preset name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.sb.SavePreset(name); err != nil {
+		http.Error(w, "SavePreset failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":     true,
+		"preset": name,
+	})
+}
+
+func (s *Server) handlePresetDelete(w http.ResponseWriter, r *http.Request) {
+	var req presetNameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if err := validatePresetName(name); err != nil {
+		http.Error(w, "invalid preset name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.sb.DeletePreset(name); err != nil {
+		http.Error(w, "DeletePreset failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":     true,
+		"preset": name,
+	})
+}
 
 
 type loadPresetRequest struct {
@@ -412,3 +488,18 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
+	if s.sys == nil {
+		http.Error(w, "sysinfo collector not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// Use request context (respects client disconnect + server timeouts)
+	ctx := r.Context()
+	snap := s.sys.Snapshot(ctx)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(snap)
+}

@@ -558,3 +558,6 @@ select {
   z-index: 2;
   pointer-events: none; /* para que no “roben” el drag */
 }
+button:disabled {
+  pointer-events: none;
+}
