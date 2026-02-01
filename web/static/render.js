@@ -51,7 +51,14 @@
         return wrap;
     };
 
-    R.renderChainsFromProgram = function renderChainsFromProgram(elLanes, program, pluginMetaByName, paramMetaByBaseType, buildPill) {
+    R.renderChainsFromProgram = function renderChainsFromProgram(
+        elLanes,
+        program,
+        pluginMetaByName,
+        paramMetaByBaseType,
+        buildPill,
+        opts // NEW: { availablePlugins: [], onAddPlugin: async (chainName, baseType)=>{} }
+    ) {
         elLanes.textContent = '';
 
         const chainOrder = ['Input', 'FxLoop', 'Output'];
@@ -62,9 +69,39 @@
             const lane = document.createElement('div');
             lane.className = 'lane';
 
+            // --- Lane header (title + Add plugin dropdown)
+            const head = document.createElement('div');
+            head.className = 'lane-head';
+
             const title = document.createElement('h3');
             title.textContent = chainName;
-            lane.appendChild(title);
+            head.appendChild(title);
+
+            if (opts?.availablePlugins?.length && typeof opts?.onAddPlugin === 'function') {
+                const sel = document.createElement('select');
+                sel.className = 'lane-add';
+                sel.innerHTML =
+                    `<option value="">+ Add plugin...</option>` +
+                    opts.availablePlugins.map(p => `<option value="${p}">${p}</option>`).join('');
+
+                sel.addEventListener('change', async (e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    sel.disabled = true;
+                    try {
+                        await opts.onAddPlugin(chainName, v);
+                    } catch (err) {
+                        console.error(err);
+                        alert(err?.message || String(err));
+                    } finally {
+                        sel.value = '';
+                        sel.disabled = false;
+                    }
+                });
+                head.appendChild(sel);
+            }
+
+            lane.appendChild(head);
 
             const items = chains[chainName] || [];
             if (!items.length) {
@@ -76,11 +113,17 @@
                 continue;
             }
 
-            for (const pluginName of items) {
+            for (let i = 0; i < items.length; i++) {
+                const pluginName = items[i];
                 const p = paramsByPlugin[pluginName] || {};
                 const baseType = pluginName.replace(/_\d+$/, '');
                 const meta = pluginMetaByName?.[baseType] || pluginMetaByName?.[pluginName] || null;
-                lane.appendChild(buildPill(pluginName, p, meta, baseType));
+                // NEW: pass chain context to the pill builder
+                lane.appendChild(buildPill(pluginName, p, meta, baseType, {
+                    chainName,
+                    index: i,
+                    chainItems: items
+                }));
             }
 
             elLanes.appendChild(lane);
@@ -246,12 +289,22 @@
         const {
             pluginName, pluginParams, bgColor, fgColor,
             paramMetaForThisPlugin,
-            fileTrees,               // NEW: map "ConvoReverb.Impulse" -> ["...", "..."]
+            fileTrees,
             pickKeys,
             isBooleanParam,
             WRITABLE_NUMERIC_PARAMS,
-            onParamCommit,           // (plugin, param, val) => Promise
-            onPluginToggleResync     // () => Promise
+            onParamCommit,
+            onPluginToggleResync,
+
+            // NEW: chain context (provided by renderChainsFromProgram via buildPill wrapper)
+            chainName,
+            chainIndex,
+            chainLength,
+
+            // NEW: callbacks (provided by app.js)
+            onUnload,   // async ({chainName, pluginName, index}) => {}
+            onMoveUp,   // async ({chainName, pluginName, from}) => {}
+            onMoveDown  // async ({chainName, pluginName, from}) => {}
         } = opts;
 
         const el = document.createElement('div');
@@ -288,6 +341,72 @@
         head.appendChild(title);
         head.appendChild(state);
         el.appendChild(head);
+        
+        // --- NEW: corner actions (Unload / Move Up / Move Down)
+        // Only render if callbacks provided.
+        if (typeof onUnload === 'function') {
+            const x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'pill-corner pill-x';
+            x.textContent = '×';
+            x.title = 'Unload';
+            x.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                const ok = confirm(`Unload ${pluginName} from ${chainName}?`);
+                if (!ok) return;
+                try {
+                    x.disabled = true;
+                    await onUnload({ chainName, pluginName, index: chainIndex });
+                } catch (err) {
+                    console.error(err);
+                    alert(err?.message || String(err));
+                } finally {
+                    x.disabled = false;
+                }
+            });
+            el.appendChild(x);
+        }
+
+        if (typeof onMoveUp === 'function') {
+            const up = document.createElement('button');
+            up.type = 'button';
+            up.className = 'pill-corner pill-up';
+            up.textContent = '↑';
+            up.title = 'Move up';
+            if (!Number.isFinite(chainIndex) || chainIndex <= 0) up.disabled = true;
+            up.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                try {
+                    up.disabled = true;
+                    await onMoveUp({ chainName, pluginName, from: chainIndex });
+                } catch (err) {
+                    console.error(err);
+                    alert(err?.message || String(err));
+                }
+            });
+            el.appendChild(up);
+        }
+
+        if (typeof onMoveDown === 'function') {
+            const down = document.createElement('button');
+            down.type = 'button';
+            down.className = 'pill-corner pill-down';
+            down.textContent = '↓';
+            down.title = 'Move down';
+            if (!Number.isFinite(chainIndex) || (Number.isFinite(chainLength) && chainIndex >= chainLength - 1)) down.disabled = true;
+            down.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                try {
+                    down.disabled = true;
+                    await onMoveDown({ chainName, pluginName, from: chainIndex });
+                } catch (err) {
+                    console.error(err);
+                    alert(err?.message || String(err));
+                }
+            });
+            el.appendChild(down);
+        }
+
 
         const body = document.createElement('div');
         body.className = 'pill-body';

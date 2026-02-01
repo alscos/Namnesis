@@ -702,7 +702,7 @@
 
       renderCore(elCore, program, paramMetaMap);
 
-      const buildPill = (pluginName, pluginParams, meta, baseType) => {
+      const buildPill = (pluginName, pluginParams, meta, baseType, ctx) => {
         return R.buildPluginPill({
           pluginName,
           pluginParams,
@@ -716,6 +716,57 @@
           WRITABLE_NUMERIC_PARAMS,
           onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
           onPluginToggleResync: () => refreshUI(),
+          // NEW: chain context so render.js can enable/disable arrows
+          chainName: ctx?.chainName,
+          chainIndex: ctx?.index,
+          chainLength: ctx?.chainItems?.length || 0,
+
+          onUnload: async ({ chainName, pluginName, index }) => {
+            // Get latest chain from the *current* program object you render from.
+            const items = (program?.chains?.[chainName] || []).slice();
+
+            // Remove by position first (safest), fallback by name
+            let next = items.slice();
+            if (Number.isFinite(index) && index >= 0 && index < next.length) {
+              next.splice(index, 1);
+            } else {
+              next = next.filter(x => x !== pluginName);
+            }
+
+            await A.setChain(chainName, next);
+
+            // Optional best-effort cleanup
+            try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
+
+            await refreshUI();
+          },
+
+          onMoveUp: async ({ chainName, from }) => {
+            const items = (program?.chains?.[chainName] || []).slice();
+            if (!Number.isFinite(from) || from <= 0 || from >= items.length) return;
+
+            const next = items.slice();
+            const t = next[from - 1];
+            next[from - 1] = next[from];
+            next[from] = t;
+
+            await A.setChain(chainName, next);
+            await refreshUI();
+          },
+
+          onMoveDown: async ({ chainName, from }) => {
+            const items = (program?.chains?.[chainName] || []).slice();
+            if (!Number.isFinite(from) || from < 0 || from >= items.length - 1) return;
+
+            const next = items.slice();
+            const t = next[from + 1];
+            next[from + 1] = next[from];
+            next[from] = t;
+
+            await A.setChain(chainName, next);
+            await refreshUI();
+          },
+
         });
       };
 

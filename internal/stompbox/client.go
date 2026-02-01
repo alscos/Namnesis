@@ -98,6 +98,42 @@ func (c *Client) SavePreset(name string) error {
 		}
 		return firstProtocolError(resp)	
 }
+// SetChain updates a named signal chain to the provided ordered list.
+// Entries can be instance names (Delay_2) or base types (Delay).
+func (c *Client) SetChain(chain string, plugins []string) error {
+	chain = strings.TrimSpace(chain)
+	if chain == "" {
+		return fmt.Errorf("missing chain name")
+	}
+
+	parts := []string{"SetChain", chain}
+	for _, p := range plugins {
+		t := strings.TrimSpace(p)
+		if t == "" {
+			continue
+		}
+		parts = append(parts, quoteIfNeeded(t))
+	}
+
+	resp, err := c.SendCommand(strings.Join(parts, " "))
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
+}
+
+// ReleasePlugin unloads/frees a plugin instance (after you removed it from the chain).
+func (c *Client) ReleasePlugin(plugin string) error {
+	plugin = strings.TrimSpace(plugin)
+	if plugin == "" {
+		return fmt.Errorf("missing plugin name")
+	}
+	resp, err := c.SendCommand("ReleasePlugin " + quoteIfNeeded(plugin))
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
+}
 
 // doUntil sends a single command (must include \r\n) and reads lines until stop(line,state) returns true.
 // It refreshes read deadlines per read so large dumps don’t time out mid-stream.

@@ -180,7 +180,7 @@ select {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 25px;
 }
 
 .pill .pill-title {
@@ -561,3 +561,81 @@ select {
 button:disabled {
   pointer-events: none;
 }
+.pill { position: relative; }
+
+.pill-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.35);
+  color: rgba(255,255,255,0.92);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+}
+.pill-corner:hover { opacity: 1; }
+.pill-corner:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.pill-x { top: 8px; right: 8px; }
+.pill-up { top: 8px; left: 8px; }
+.pill-down { bottom: 8px; left: 8px; }
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.lane-add {
+  height: 34px;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.9);
+}
+/* --- Reserve space so corner buttons don't overlap title text --- */
+.pill { position: relative; }
+
+/* The head row needs padding on both sides:
+   left for arrows, right for the X */
+.pill-head {
+  padding-left: 34px;   /* room for ↑ and ↓ on the left */
+  padding-right: 34px;  /* room for × on the right */
+}
+
+/* If your title is the element that wraps name + toggle, ensure it can shrink */
+.pill-title {
+  min-width: 0;
+}
+
+/* Corner buttons: slightly smaller and less intrusive */
+.pill-corner {
+  position: absolute;
+  z-index: 9999;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.20);
+  background: rgba(0,0,0,0.30);
+  color: rgba(255,255,255,0.92);
+  font-size: 13px;
+  line-height: 7px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Place them slightly more “into the corners” */
+.pill-x   { top: 10px; right: 10px; }
+.pill-up  { top: 10px; left: 10px; }
+.pill-down{ top: 36px; left: 10px; } /* stack under ↑ */
