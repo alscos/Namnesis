@@ -13,6 +13,30 @@ import (
 	
 )
 
+type presetCurrentResponse struct {
+	CurrentPreset string `json:"currentPreset"`
+	Error         string `json:"error,omitempty"`
+	}
+
+	func (s *Server) handlePresetCurrent(w http.ResponseWriter, r *http.Request) {
+	out, err := s.sb.DumpProgram()
+	if err != nil {
+		writeJSON(w, http.StatusOK, presetCurrentResponse{CurrentPreset: "", Error: err.Error()})
+		return
+	}
+
+	preset := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "SetPreset ") {
+		preset = strings.TrimSpace(strings.TrimPrefix(line, "SetPreset "))
+		break
+		}
+	}
+
+	writeJSON(w, http.StatusOK, presetCurrentResponse{CurrentPreset: preset})
+}
+
 func (s *Server) handleDumpConfigRaw(w http.ResponseWriter, r *http.Request) {
 	out, err := s.sb.DumpConfig()
 	if err != nil {

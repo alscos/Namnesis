@@ -105,13 +105,13 @@
             const mBg = line.match(/\bBackgroundColor\s+(#[0-9a-fA-F]{6})\b/);
             const mFg = line.match(/\bForegroundColor\s+(#[0-9a-fA-F]{6})\b/);
             const mDesc = line.match(/\bDescription\s+"([^"]*)"/);
-            const mSel = line.match(/\bIsUserSelectable\s+([01])\b/);
+            const mSel = line.match(/\bIsUserSelectable\b\s*[:=]?\s*(true|false|[01])\b/i);
 
             map[name] = {
                 bg: mBg ? mBg[1] : null,
                 fg: mFg ? mFg[1] : null,
                 desc: mDesc ? mDesc[1] : '',
-                selectable: mSel ? (Number(mSel[1]) === 1) : false,
+                selectable: mSel ? (mSel[1].toLowerCase() === "true" || mSel[1] === "1") : false,
             };
         }
         return map;

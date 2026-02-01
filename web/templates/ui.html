@@ -17,35 +17,50 @@
 <body class="min-h-dvh bg-neutral-950 text-neutral-200 antialiased selection:bg-indigo-500/30">
 
   <div class="mx-auto max-w-[1600px] w-full px-4 py-6 md:px-8">
-    <header
-      class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-neutral-900 pb-6 gap-6 md:gap-0">
+   <header class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-neutral-900 pb-6 gap-6 md:gap-0">
+  <div class="flex items-center gap-4 md:gap-6">
+    <img src="/static/img/logo.svg" alt="Namnesis"
+      class="logo-white h-[90px] md:h-[130px] w-auto opacity-95 transition-all" />
 
-      <div class="flex items-center gap-4 md:gap-6">
-        <img src="/static/img/logo.svg" alt="Namnesis"
-          class="logo-white h-[90px] md:h-[130px] w-auto opacity-95 transition-all" />
-
-        <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
-          <div id="now"
-            class="rounded bg-black border border-neutral-800 px-3 py-1.5 text-[10px] md:text-xs font-mono text-neutral-500 whitespace-nowrap">
-            ...
-          </div>
-          <div id="status"
-            class="status-pulse rounded bg-black border border-indigo-500/30 px-3 py-1.5 text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-400 min-w-[70px] md:min-w-[100px] text-center transition-all">
-            loading…
-          </div>
+    <div class="flex flex-col gap-3">
+      
+      <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
+        <div id="now"
+          class="rounded bg-black border border-neutral-800 px-3 py-1.5 text-[10px] md:text-xs font-mono text-neutral-500 whitespace-nowrap">
+          ...
+        </div>
+        <div id="status"
+          class="status-pulse rounded bg-black border border-indigo-500/30 px-3 py-1.5 text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-400 min-w-[70px] md:min-w-[100px] text-center transition-all">
+          loading…
         </div>
       </div>
 
-      <div id="sysStatusBar"
-        class="flex flex-wrap items-center gap-4 text-[10px] md:text-[11px] uppercase tracking-widest text-white/80">
-        <span id="sysReady" class="font-black">—</span>
-        <span id="sysXruns">XRUNS —</span>
-        <span id="sysLatency">LAT —</span>
-        <span id="sysMidi">🎹</span>
-        <span id="sysIF">IF —</span>
-      </div>
+      <div class="flex items-center gap-3">
+        <span id="refreshModeLabel" class="text-[10px] md:text-[11px] font-black tracking-widest text-white/70">LIVE</span>
 
-    </header>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input id="refreshModeToggle" type="checkbox" class="sr-only peer" checked>
+          <div class="w-10 h-5 md:w-11 md:h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:bg-emerald-500/40 transition-colors"></div>
+          <div class="absolute left-1 top-1 w-3 h-3 md:w-4 md:h-4 bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
+        </label>
+
+        <button id="manualRefreshBtn"
+          class="hidden h-8 md:h-9 rounded-lg bg-white/10 hover:bg-white/15 px-3 md:px-4 text-[10px] md:text-[11px] font-black uppercase tracking-widest text-white/90 transition-all active:scale-95">
+          Refresh
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sysStatusBar"
+    class="flex flex-wrap items-center gap-4 text-[10px] md:text-[11px] uppercase tracking-widest text-white/80">
+    <span id="sysReady" class="font-black">—</span>
+    <span id="sysXruns">XRUNS —</span>
+    <span id="sysLatency">LAT —</span>
+    <span id="sysMidi">🎹</span>
+    <span id="sysIF">IF —</span>
+  </div>
+</header>
 
     <section
       class="mt-6 flex flex-col lg:flex-row items-stretch lg:items-end gap-6 bg-neutral-900/20 p-4 rounded-2xl border border-neutral-800/50 backdrop-blur-md">

@@ -17,7 +17,16 @@
   const state = {
     presetChangeHandlerBound: false,
     isProgrammaticPresetUpdate: false,
-    isProgrammaticModelUpdate: false,
+    isProgrammaticModeUpdate: false,
+
+    // --- LIVE vs RESEARCH ---
+    refreshMode: localStorage.getItem("namnesis.refreshMode") || "live", // "live" | "research"
+    systemPollTimer: null,
+    presetWatchTimer: null,
+    lastPresetSeen: null, // used later for midi-triggered preset sync
+    isRefreshingUI: false,
+    isCheckingPreset: false,
+
     core: {
       inputGain: null,
       inputMuted: false,
@@ -157,7 +166,24 @@
     opt0.textContent = '---';
     elPreset.appendChild(opt0);
 
-    for (const p of presetList) {
+    // ---- sort presets: numeric prefix first, then alphabetic ----
+    const sortedPresets = [...presetList].sort((a, b) => {
+      const rx = /^(\d+)[\s._-]*/;
+      const ma = a.match(rx);
+      const mb = b.match(rx);
+
+      if (ma && mb) {
+        // both have numeric prefix → numeric compare
+        return Number(ma[1]) - Number(mb[1]);
+      }
+      if (ma) return -1; // a has number, b doesn't
+      if (mb) return 1;  // b has number, a doesn't
+
+      // fallback: alphabetical
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    for (const p of sortedPresets) {
       const opt = document.createElement('option');
       opt.value = p;
       opt.textContent = p;
@@ -466,6 +492,27 @@
       const v = parseFloat(slider.value);
       await onCommit(v);
     };
+    // LIVE / RESEARCH toggle
+    const refreshToggle = document.getElementById("refreshModeToggle");
+    const manualBtn = document.getElementById("manualRefreshBtn");
+
+    if (refreshToggle) {
+      refreshToggle.addEventListener("change", async (e) => {
+        const on = !!e.target.checked;
+        await setRefreshMode(on ? "live" : "research");
+      });
+    }
+
+    if (manualBtn) {
+      manualBtn.addEventListener("click", async () => {
+        await refreshUI();
+        await refreshSystemStrip();
+      });
+    }
+
+    // Apply mode on startup
+    applyRefreshModeUI();
+    if (state.refreshMode === "live") startLivePolling();
 
     // commit only on release / confirm
     slider.addEventListener('change', () => commit());
@@ -575,6 +622,73 @@
     el.appendChild(eqCard);
     el.appendChild(masterCard);
   }
+
+  async function fetchCurrentPresetName() {
+    // Preferred (future): lightweight endpoint
+    try {
+      const r = await fetch("/api/preset/current", { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        // accept a few possible keys to be resilient
+        return j.currentPreset || j.preset || j.name || "";
+      }
+    } catch (_) { }
+
+    // Fallback (beta): ask /api/state and extract preset
+    try {
+      const r = await fetch("/api/state", { cache: "no-store" });
+      if (!r.ok) return "";
+      const j = await r.json();
+
+      // Try multiple shapes:
+      // - j.currentPreset
+      // - j.preset.current
+      // - j.program.currentPreset
+      // Adjust once you confirm actual payload.
+      return (
+        j.currentPreset ||
+        j.preset?.current ||
+        j.program?.currentPreset ||
+        j.program?.preset ||
+        ""
+      );
+    } catch (_) {
+      return "";
+    }
+  }
+
+  async function checkPresetChangedLive() {
+    if (state.refreshMode !== "live") return;
+    if (state.isCheckingPreset) return;
+    state.isCheckingPreset = true;
+    try {
+      const p = await fetchCurrentPresetName();
+      if (!p) return;
+
+      if (state.lastPresetSeen === null) {
+        state.lastPresetSeen = p;
+        return;
+      }
+
+      if (p !== state.lastPresetSeen) {
+        state.lastPresetSeen = p;
+
+        // Update dropdown without triggering onPresetChanged
+        const elPreset = document.getElementById("presetSelect");
+        if (elPreset) {
+          state.isProgrammaticPresetUpdate = true;
+          elPreset.value = p;
+          state.isProgrammaticPresetUpdate = false;
+        }
+
+        // Full UI refresh (chains/params reflect new preset)
+        await refreshUI();
+      }
+    } finally {
+      state.isCheckingPreset = false;
+    }
+  }
+
   async function refreshSystemStrip() {
     try {
       const r = await fetch("/api/system");
@@ -651,142 +765,238 @@
       document.getElementById("sysReady").textContent = "FAIL";
     }
   }
-  setInterval(refreshSystemStrip, 1000);
-
-  async function refreshUI() {
-    try {
-      const { res, data } = await A.fetchState();
-
-      elNow.textContent = data?.meta?.now || '(no time)';
-      elStatus.textContent = res.ok ? 'ok' : ('http ' + res.status);
-
-      const presetList = data?.presets?.error ? [] : P.parsePresets(data?.presets?.raw || '');
-      const pluginMetaMap = data?.dumpConfig?.error ? {} : P.parseDumpConfig(data?.dumpConfig?.raw || '');
-      const trees = data?.dumpConfig?.error ? {} : P.parseFileTrees(data?.dumpConfig?.raw || '');
-      const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
-
-      const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
-
-      // --- CORE fixed params (Input / Master) ---
-      // These fixed engine modules are not serialized in DumpProgram.
-      // Initialize once from DumpConfig defaults (or 0 dB fallback).
-      if (state.core.inputGain === null) {
-        const defIn = paramMetaMap?.Input?.Gain?.def;
-        state.core.inputGain = Number.isFinite(defIn) ? defIn : 0;
-      }
-      if (state.core.masterVolume === null) {
-        const defOut = paramMetaMap?.Master?.Volume?.def;
-        state.core.masterVolume = Number.isFinite(defOut) ? defOut : 0;
-      }
-
-      setPresetDropdown(presetList, program.preset);
-
-      const namCurrent = program?.params?.NAM?.Model ?? null;
-      const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
-      const namOpts = trees['NAM.Model'] || [];
-      const cabOpts = trees['Cabinet.Impulse'] || [];
-
-      elModelSelectors.innerHTML = '';
-      elModelSelectors.appendChild(
-        R.buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
-          await A.setFileParam('NAM', 'Model', v);
-          await refreshAfterFileParamChange('NAM', 'Model', v);
-        }, state)
-      );
-      elModelSelectors.appendChild(
-        R.buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
-          await A.setFileParam('Cabinet', 'Impulse', v);
-          await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
-        }, state)
-      );
-
-      renderCore(elCore, program, paramMetaMap);
-
-      const buildPill = (pluginName, pluginParams, meta, baseType, ctx) => {
-        return R.buildPluginPill({
-          pluginName,
-          pluginParams,
-          bgColor: meta?.bg || null,
-          fgColor: meta?.fg || null,
-          paramMetaForThisPlugin: paramMetaMap?.[baseType] || paramMetaMap?.[pluginName] || {},
-          pickKeys: pickPluginKeys,
-          isBooleanParam,
-          fileTrees: trees,
-          onFileParamCommit: (pl, pa, val) => A.setFileParam(pl, pa, val),
-          WRITABLE_NUMERIC_PARAMS,
-          onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
-          onPluginToggleResync: () => refreshUI(),
-          // NEW: chain context so render.js can enable/disable arrows
-          chainName: ctx?.chainName,
-          chainIndex: ctx?.index,
-          chainLength: ctx?.chainItems?.length || 0,
-
-          onUnload: async ({ chainName, pluginName, index }) => {
-            // Get latest chain from the *current* program object you render from.
-            const items = (program?.chains?.[chainName] || []).slice();
-
-            // Remove by position first (safest), fallback by name
-            let next = items.slice();
-            if (Number.isFinite(index) && index >= 0 && index < next.length) {
-              next.splice(index, 1);
-            } else {
-              next = next.filter(x => x !== pluginName);
-            }
-
-            await A.setChain(chainName, next);
-
-            // Optional best-effort cleanup
-            try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
-
-            await refreshUI();
-          },
-
-          onMoveUp: async ({ chainName, from }) => {
-            const items = (program?.chains?.[chainName] || []).slice();
-            if (!Number.isFinite(from) || from <= 0 || from >= items.length) return;
-
-            const next = items.slice();
-            const t = next[from - 1];
-            next[from - 1] = next[from];
-            next[from] = t;
-
-            await A.setChain(chainName, next);
-            await refreshUI();
-          },
-
-          onMoveDown: async ({ chainName, from }) => {
-            const items = (program?.chains?.[chainName] || []).slice();
-            if (!Number.isFinite(from) || from < 0 || from >= items.length - 1) return;
-
-            const next = items.slice();
-            const t = next[from + 1];
-            next[from + 1] = next[from];
-            next[from] = t;
-
-            await A.setChain(chainName, next);
-            await refreshUI();
-          },
-
-        });
-      };
-
-      elLanes.innerHTML = '';
-      R.renderChainsFromProgram(elLanes, program, pluginMetaMap, paramMetaMap, buildPill);
-      R.renderSlotsFromDumpProgram(elSlots, program);
-
-      const dbg = [];
-      dbg.push('Durations:');
-      dbg.push('  dumpConfig: ' + (data?.dumpConfig?.duration || 'n/a'));
-      dbg.push('  program:    ' + (data?.program?.duration || 'n/a'));
-      dbg.push('  presets:    ' + (data?.presets?.duration || 'n/a'));
-      elDebug.innerHTML = '<pre>' + dbg.join('\n') + '</pre>';
-
-      return program;
-    } catch (e) {
-      elStatus.textContent = 'error';
-      elDebug.innerHTML = '<pre>' + String(e) + '</pre>';
+  function stopLivePolling() {
+    if (state.systemPollTimer) {
+      clearInterval(state.systemPollTimer);
+      state.systemPollTimer = null;
+    }
+    if (state.presetWatchTimer) {
+      clearInterval(state.presetWatchTimer);
+      state.presetWatchTimer = null;
     }
   }
+function applyRefreshModeUI() {
+    const isLive = state.refreshMode === "live";
+    const el = document.getElementById("refreshModeToggle");
+    const label = document.getElementById("refreshModeLabel");
+    const btn = document.getElementById("manualRefreshBtn");
 
+    if (label) label.textContent = isLive ? "LIVE" : "RESEARCH";
+    if (btn) btn.classList.toggle("hidden", isLive);
+    if (el) el.checked = isLive;
+  }
+
+  async function setRefreshMode(mode) {
+    state.refreshMode = (mode === "research") ? "research" : "live";
+    localStorage.setItem("namnesis.refreshMode", state.refreshMode);
+
+    if (state.refreshMode === "live") {
+      // Prime watcher so first tick doesn't force refresh
+      state.lastPresetSeen = await fetchCurrentPresetName() || state.lastPresetSeen;
+      await refreshSystemStrip();
+      startLivePolling();
+    } else {
+      stopLivePolling();
+    }
+
+    applyRefreshModeUI();
+  }
+
+  function startLivePolling() {
+    stopLivePolling();
+    state.systemPollTimer = setInterval(() => {
+      refreshSystemStrip();
+    }, 750);
+// Watch preset changes (e.g. MIDI) and refresh UI when it changes
+    state.presetWatchTimer = setInterval(() => {
+      checkPresetChangedLive();
+    }, 300);
+  }
+    async function refreshUI() {
+      if (state.isRefreshingUI) return;
+      state.isRefreshingUI = true;
+      try {
+        const { res, data } = await A.fetchState();
+
+        elNow.textContent = data?.meta?.now || '(no time)';
+        elStatus.textContent = res.ok ? 'ok' : ('http ' + res.status);
+
+        const presetList = data?.presets?.error ? [] : P.parsePresets(data?.presets?.raw || '');
+        const pluginMetaMap = data?.dumpConfig?.error ? {} : P.parseDumpConfig(data?.dumpConfig?.raw || '');
+        const trees = data?.dumpConfig?.error ? {} : P.parseFileTrees(data?.dumpConfig?.raw || '');
+        const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
+
+        const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
+        // ---- AVAILABLE PLUGINS FOR "LOAD" DROPDOWN ----
+        // Derive base plugin types from current params (stable & build-agnostic)
+        const availablePlugins = Array.from(
+          new Set(
+            Object.keys(program?.params || {}).map(p => p.replace(/_\d+$/, ''))
+          )
+        ).sort((a, b) => a.localeCompare(b));
+        // --- CORE fixed params (Input / Master) ---
+        // These fixed engine modules are not serialized in DumpProgram.
+        // Initialize once from DumpConfig defaults (or 0 dB fallback).
+        if (state.core.inputGain === null) {
+          const defIn = paramMetaMap?.Input?.Gain?.def;
+          state.core.inputGain = Number.isFinite(defIn) ? defIn : 0;
+        }
+        if (state.core.masterVolume === null) {
+          const defOut = paramMetaMap?.Master?.Volume?.def;
+          state.core.masterVolume = Number.isFinite(defOut) ? defOut : 0;
+        }
+
+        setPresetDropdown(presetList, program.preset);
+
+        const namCurrent = program?.params?.NAM?.Model ?? null;
+        const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
+        const namOpts = trees['NAM.Model'] || [];
+        const cabOpts = trees['Cabinet.Impulse'] || [];
+
+        elModelSelectors.innerHTML = '';
+        elModelSelectors.appendChild(
+          R.buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
+            await A.setFileParam('NAM', 'Model', v);
+            await refreshAfterFileParamChange('NAM', 'Model', v);
+          }, state)
+        );
+        elModelSelectors.appendChild(
+          R.buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
+            await A.setFileParam('Cabinet', 'Impulse', v);
+            await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
+          }, state)
+        );
+
+        renderCore(elCore, program, paramMetaMap);
+        // ---- ADD PLUGIN HANDLER (for lane dropdown) ----
+        const handleAddPlugin = async (chainName, baseType) => {
+          const items = (program?.chains?.[chainName] || []).slice();
+
+          // Push baseType; Stompbox will instantiate (e.g. Delay -> Delay_3)
+          items.push(baseType);
+
+          await A.setChain(chainName, items);
+          await refreshUI();
+        };
+        const buildPill = (pluginName, pluginParams, meta, baseType, ctx) => {
+          return R.buildPluginPill({
+            pluginName,
+            pluginParams,
+            bgColor: meta?.bg || null,
+            fgColor: meta?.fg || null,
+            paramMetaForThisPlugin: paramMetaMap?.[baseType] || paramMetaMap?.[pluginName] || {},
+            pickKeys: pickPluginKeys,
+            isBooleanParam,
+            fileTrees: trees,
+            onFileParamCommit: (pl, pa, val) => A.setFileParam(pl, pa, val),
+            WRITABLE_NUMERIC_PARAMS,
+            onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
+            onPluginToggleResync: () => refreshUI(),
+            // NEW: chain context so render.js can enable/disable arrows
+            chainName: ctx?.chainName,
+            chainIndex: ctx?.index,
+            chainLength: ctx?.chainItems?.length || 0,
+
+            onUnload: async ({ chainName, pluginName, index }) => {
+              // Get latest chain from the *current* program object you render from.
+              const items = (program?.chains?.[chainName] || []).slice();
+
+              // Remove by position first (safest), fallback by name
+              let next = items.slice();
+              if (Number.isFinite(index) && index >= 0 && index < next.length) {
+                next.splice(index, 1);
+              } else {
+                next = next.filter(x => x !== pluginName);
+              }
+
+              await A.setChain(chainName, next);
+
+              // Optional best-effort cleanup
+              try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
+
+              await refreshUI();
+            },
+
+            onMoveUp: async ({ chainName, from }) => {
+              const items = (program?.chains?.[chainName] || []).slice();
+              if (!Number.isFinite(from) || from <= 0 || from >= items.length) return;
+
+              const next = items.slice();
+              const t = next[from - 1];
+              next[from - 1] = next[from];
+              next[from] = t;
+
+              await A.setChain(chainName, next);
+              await refreshUI();
+            },
+
+            onMoveDown: async ({ chainName, from }) => {
+              const items = (program?.chains?.[chainName] || []).slice();
+              if (!Number.isFinite(from) || from < 0 || from >= items.length - 1) return;
+
+              const next = items.slice();
+              const t = next[from + 1];
+              next[from + 1] = next[from];
+              next[from] = t;
+
+              await A.setChain(chainName, next);
+              await refreshUI();
+            },
+
+          });
+        };
+
+        elLanes.innerHTML = '';
+        R.renderChainsFromProgram(
+          elLanes,
+          program,
+          pluginMetaMap,
+          paramMetaMap,
+          buildPill,
+          {
+            availablePlugins,
+            onAddPlugin: handleAddPlugin
+          }
+        );
+        R.renderSlotsFromDumpProgram(elSlots, program);
+
+        const dbg = [];
+        dbg.push('Durations:');
+        dbg.push('  dumpConfig: ' + (data?.dumpConfig?.duration || 'n/a'));
+        dbg.push('  program:    ' + (data?.program?.duration || 'n/a'));
+        dbg.push('  presets:    ' + (data?.presets?.duration || 'n/a'));
+        elDebug.innerHTML = '<pre>' + dbg.join('\n') + '</pre>';
+
+        return program;
+      } catch (e) {
+        elStatus.textContent = 'error';
+        elDebug.innerHTML = '<pre>' + String(e) + '</pre>';
+      } finally {
+        state.isRefreshingUI = false;
+      }
+    }
+// ---- wire LIVE/RESEARCH controls once ----
+  const refreshToggle = document.getElementById("refreshModeToggle");
+  const manualBtn = document.getElementById("manualRefreshBtn");
+
+  if (refreshToggle) {
+    refreshToggle.addEventListener("change", async (e) => {
+      const on = !!e.target.checked;
+      await setRefreshMode(on ? "live" : "research");
+    });
+  }
+
+  if (manualBtn) {
+    manualBtn.addEventListener("click", async () => {
+      await refreshUI();
+      await refreshSystemStrip();
+    });
+  }
+
+  // ---- startup ----
+  applyRefreshModeUI();
   refreshUI();
+  if (state.refreshMode === "live") startLivePolling();
+
 })();
+  
