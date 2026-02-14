@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,19 +18,25 @@ import (
 	"time"
 )
 
+/*
+UNIVERSAL SYSINFO (config-driven)
+
+Key principles:
+- Do not guess system intent; intent comes from config.
+- Do not conflate "jack service active" with "JACK client tools can connect".
+- Expose probe status explicitly so failures are diagnosable.
+*/
+
 type Snapshot struct {
 	TS int64 `json:"ts"`
 
-	Jack JackInfo `json:"jack"`
-
+	Jack    JackInfo    `json:"jack"`
 	Routing RoutingInfo `json:"routing"`
 	MIDI    MidiInfo    `json:"midi"`
-
 	AudioIF AudioIFInfo `json:"audioif"`
-
-	CPU  CPUInfo  `json:"cpu"`
-	Mem  MemInfo  `json:"mem"`
-	Disk DiskInfo `json:"disk"`
+	CPU     CPUInfo     `json:"cpu"`
+	Mem     MemInfo     `json:"mem"`
+	Disk    DiskInfo    `json:"disk"`
 
 	Errors []string `json:"errors,omitempty"`
 }
@@ -55,18 +60,25 @@ type JackInfo struct {
 }
 
 type RoutingInfo struct {
-	OK       bool     `json:"ok"`
-	Missing  []string `json:"missing,omitempty"`
-	Ports    int      `json:"ports"`
-	Edges    int      `json:"edges"`
-	Summary  []string `json:"summary,omitempty"`
-	RawPorts []string `json:"raw_ports,omitempty"` // opcional; lo dejamos vacío por defecto
+	// probe_ok tells whether jack_lsp ran successfully (i.e. we could query JACK graph).
+	ProbeOK    bool   `json:"probe_ok"`
+	ProbeError string `json:"probe_error,omitempty"`
+
+	// ok tells whether configured expectations are satisfied (only meaningful when ProbeOK=true).
+	OK      bool     `json:"ok"`
+	Missing []string `json:"missing,omitempty"`
+
+	Ports   int      `json:"ports"`
+	Edges   int      `json:"edges"`
+	Summary []string `json:"summary,omitempty"`
 }
 
 type MidiInfo struct {
 	ALSA []string `json:"alsa,omitempty"`
-	Jack []string `json:"jack,omitempty"`
 
+	// connected is computed from one (or both) of:
+	// - ALSA listing match (midi.alsa_required_regex)
+	// - Routing edge match (midi.connected_regex) when routing probe succeeded
 	Connected bool   `json:"connected"`
 	Details   string `json:"details,omitempty"`
 }
@@ -76,10 +88,9 @@ type AudioIFInfo struct {
 }
 
 type CPUInfo struct {
-	Load1     float64 `json:"load1"`
-	Governor  string  `json:"governor,omitempty"`
-	TempC     float64 `json:"temp_c,omitempty"`
-	Throttled bool    `json:"throttled,omitempty"` // best-effort
+	Load1    float64 `json:"load1"`
+	Governor string  `json:"governor,omitempty"`
+	TempC    float64 `json:"temp_c,omitempty"`
 }
 
 type MemInfo struct {
@@ -91,154 +102,367 @@ type DiskInfo struct {
 	RootFreeGB float64 `json:"root_free_gb"`
 }
 
+/* ---------------- Config ---------------- */
+
+type Config struct {
+	CacheTTLms int `json:"cache_ttl_ms"`
+
+	Jack struct {
+		Enabled     bool   `json:"enabled"`
+		ServiceName string `json:"service_name"`
+		UnitPath    string `json:"unit_path"`
+
+		JournalUnit  string `json:"journal_unit"`
+		JournalLines int    `json:"journal_lines"`
+		XrunRegex    string `json:"xrun_regex"`
+	} `json:"jack"`
+
+	Routing struct {
+		Enabled    bool              `json:"enabled"`
+		JackLspCmd []string          `json:"jack_lsp_cmd"`
+		Env        map[string]string `json:"env"` // env vars for jack_lsp (e.g. XDG_RUNTIME_DIR)
+
+		Expect []struct {
+			ID        string `json:"id"`
+			FromRegex string `json:"from_regex"`
+			ToRegex   string `json:"to_regex"`
+			Message   string `json:"message"`
+		} `json:"expect"`
+	} `json:"routing"`
+
+	Midi struct {
+		Enabled     bool     `json:"enabled"`
+		AconnectCmd []string `json:"aconnect_cmd"`
+
+		// connected_regex is evaluated against routing summary edges (requires routing probe OK).
+		ConnectedRegex string `json:"connected_regex"`
+
+		// alsa_required_regex is evaluated against the full aconnect -l output (does NOT require routing).
+		ALSARequiredRegex string `json:"alsa_required_regex"`
+	} `json:"midi"`
+
+	AudioIF struct {
+		Enabled         bool   `json:"enabled"`
+		AsoundCardsPath string `json:"asound_cards_path"`
+	} `json:"audioif"`
+
+	CPU struct {
+		Enabled bool `json:"enabled"`
+	} `json:"cpu"`
+	Mem struct {
+		Enabled bool `json:"enabled"`
+	} `json:"mem"`
+	Disk struct {
+		Enabled bool   `json:"enabled"`
+		Path    string `json:"path"`
+	} `json:"disk"`
+}
+
+func defaultConfig() Config {
+	var cfg Config
+	cfg.CacheTTLms = 1500
+
+	cfg.Jack.Enabled = true
+	cfg.Jack.ServiceName = "jackd"
+	cfg.Jack.UnitPath = "/etc/systemd/system/jackd.service"
+	cfg.Jack.JournalUnit = "jackd"
+	cfg.Jack.JournalLines = 250
+	cfg.Jack.XrunRegex = `(?i)\bxrun\b`
+
+	cfg.Routing.Enabled = true
+	cfg.Routing.JackLspCmd = []string{"jack_lsp", "-c"}
+	cfg.Routing.Env = map[string]string{}
+
+	cfg.Midi.Enabled = true
+	cfg.Midi.AconnectCmd = []string{"aconnect", "-l"}
+	cfg.Midi.ConnectedRegex = `(?i)a2j:.*->.*stompbox:.*midi`
+	cfg.Midi.ALSARequiredRegex = "" // optional
+
+	cfg.AudioIF.Enabled = true
+	cfg.AudioIF.AsoundCardsPath = "/proc/asound/cards"
+
+	cfg.CPU.Enabled = true
+	cfg.Mem.Enabled = true
+	cfg.Disk.Enabled = true
+	cfg.Disk.Path = "/"
+	return cfg
+}
+
+func loadConfig() (Config, error) {
+	cfg := defaultConfig()
+	path := strings.TrimSpace(os.Getenv("SYSINFO_CONFIG"))
+	if path == "" {
+		path = "./sysinfo.json"
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, fmt.Errorf("sysinfo config read (%s): %w", path, err)
+	}
+
+	var userCfg Config
+	if err := json.Unmarshal(b, &userCfg); err != nil {
+		return cfg, fmt.Errorf("sysinfo config json (%s): %w", path, err)
+	}
+
+	// Merge overrides conservatively.
+	if userCfg.CacheTTLms != 0 {
+		cfg.CacheTTLms = userCfg.CacheTTLms
+	}
+	if userCfg.Jack.ServiceName != "" || userCfg.Jack.UnitPath != "" || userCfg.Jack.JournalUnit != "" || userCfg.Jack.XrunRegex != "" || userCfg.Jack.JournalLines != 0 || userCfg.Jack.Enabled != cfg.Jack.Enabled {
+		cfg.Jack = userCfg.Jack
+	}
+	if userCfg.Routing.JackLspCmd != nil || userCfg.Routing.Expect != nil || userCfg.Routing.Env != nil || userCfg.Routing.Enabled != cfg.Routing.Enabled {
+		cfg.Routing = userCfg.Routing
+		if cfg.Routing.Env == nil {
+			cfg.Routing.Env = map[string]string{}
+		}
+	}
+	if userCfg.Midi.AconnectCmd != nil || userCfg.Midi.ConnectedRegex != "" || userCfg.Midi.ALSARequiredRegex != "" || userCfg.Midi.Enabled != cfg.Midi.Enabled {
+		cfg.Midi = userCfg.Midi
+	}
+	if userCfg.AudioIF.AsoundCardsPath != "" || userCfg.AudioIF.Enabled != cfg.AudioIF.Enabled {
+		cfg.AudioIF = userCfg.AudioIF
+	}
+	cfg.CPU = userCfg.CPU
+	cfg.Mem = userCfg.Mem
+	cfg.Disk = userCfg.Disk
+	if cfg.Disk.Path == "" {
+		cfg.Disk.Path = "/"
+	}
+
+	return cfg, nil
+}
+
+/* ---------------- Collector ---------------- */
+
 type Collector struct {
 	mu sync.Mutex
 
-	cache      Snapshot
-	cacheAt    time.Time
-	cacheTTL   time.Duration
-	lastXruns  int
-	lastXrunAt string
+	cache    Snapshot
+	cacheAt  time.Time
+	cacheTTL time.Duration
 
-	jackUnitPath string
-}
-func jackdUIDGID() (uid int, gid int, err error) {
-	// Busca el PID de jackd
-	out, err := exec.Command("pidof", "jackd").Output()
-	if err != nil {
-		return 0, 0, fmt.Errorf("pidof jackd failed: %w", err)
-	}
-	pids := strings.Fields(strings.TrimSpace(string(out)))
-	if len(pids) == 0 {
-		return 0, 0, fmt.Errorf("jackd pid not found")
-	}
+	lastXruns int
 
-	// Usa el primer PID
-	status := fmt.Sprintf("/proc/%s/status", pids[0])
-	lines, err := readFileLines(status, 0)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	for _, l := range lines {
-		if strings.HasPrefix(l, "Uid:") {
-			fmt.Sscanf(l, "Uid:\t%d", &uid)
-		}
-		if strings.HasPrefix(l, "Gid:") {
-			fmt.Sscanf(l, "Gid:\t%d", &gid)
-		}
-	}
-	if uid == 0 {
-		return 0, 0, fmt.Errorf("could not resolve jackd uid/gid")
-	}
-	return uid, gid, nil
+	cfg       Config
+	cfgErrMsg string
 }
 
 func NewCollector() *Collector {
-	return &Collector{
-		cacheTTL:     1500 * time.Millisecond,
-		jackUnitPath: "/etc/systemd/system/jackd.service",
+	cfg, err := loadConfig()
+	c := &Collector{
+		cfg: cfg,
 	}
+	if err != nil {
+		c.cfgErrMsg = err.Error()
+	}
+	c.cacheTTL = time.Duration(cfg.CacheTTLms) * time.Millisecond
+	return c
 }
 
 func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// MOCK MODE for macOS dev: bypass all probing.
+	if p := strings.TrimSpace(os.Getenv("SYSINFO_MOCK_FILE")); p != "" {
+		s := snapshotFromMockFile(p)
+		c.cache = s
+		c.cacheAt = time.Now()
+		return s
+	}
+
 	if !c.cacheAt.IsZero() && time.Since(c.cacheAt) < c.cacheTTL {
 		return c.cache
 	}
 
-	snap := Snapshot{
-		TS: time.Now().Unix(),
+	snap := Snapshot{TS: time.Now().Unix()}
+	if c.cfgErrMsg != "" {
+		snap.Errors = append(snap.Errors, c.cfgErrMsg)
 	}
 
-	// JACK: parse unit file (authoritative) + runtime checks
-	jackCfg, err := parseJackdUnit(c.jackUnitPath)
-	if err != nil {
-		snap.Errors = append(snap.Errors, "jack unit parse: "+err.Error())
-	} else {
-		snap.Jack.Driver = jackCfg.Driver
-		snap.Jack.Device = jackCfg.Device
-		snap.Jack.SR = jackCfg.SR
-		snap.Jack.Buf = jackCfg.Buf
-		snap.Jack.Periods = jackCfg.Periods
-		snap.Jack.RTPrio = jackCfg.RTPrio
-		snap.Jack.RT = jackCfg.RT
-		if snap.Jack.SR > 0 && snap.Jack.Buf > 0 && snap.Jack.Periods > 0 {
-			// round-trip estimate: (buf*periods*2)/sr * 1000
-			snap.Jack.LatencyRTMs = (float64(snap.Jack.Buf*snap.Jack.Periods*2) / float64(snap.Jack.SR)) * 1000.0
+	/* JACK */
+	if c.cfg.Jack.Enabled {
+		// NOTE: Do not conflate "systemd unit active" with "JACK is reachable".
+		// We keep a systemd check only as a fallback signal when we cannot probe JACK.
+		serviceActive := false
+		jackCfg, err := parseJackdUnit(c.cfg.Jack.UnitPath)
+		if err != nil {
+			snap.Errors = append(snap.Errors, "jack unit parse: "+err.Error())
+		} else {
+			snap.Jack.Driver = jackCfg.Driver
+			snap.Jack.Device = jackCfg.Device
+			snap.Jack.SR = jackCfg.SR
+			snap.Jack.Buf = jackCfg.Buf
+			snap.Jack.Periods = jackCfg.Periods
+			snap.Jack.RTPrio = jackCfg.RTPrio
+			snap.Jack.RT = jackCfg.RT
+			if snap.Jack.SR > 0 && snap.Jack.Buf > 0 && snap.Jack.Periods > 0 {
+				snap.Jack.LatencyRTMs = (float64(snap.Jack.Buf*snap.Jack.Periods*2) / float64(snap.Jack.SR)) * 1000.0
+			}
+		}
+
+		if c.cfg.Jack.ServiceName != "" {
+			serviceActive = isServiceActive(ctx, c.cfg.Jack.ServiceName)
+			// provisional; may be overridden by a real probe below
+			snap.Jack.Running = serviceActive
+		}
+
+		xruns, lastLine, xerr := countXruns(ctx, c.cfg.Jack.JournalUnit, c.cfg.Jack.JournalLines, c.cfg.Jack.XrunRegex)
+		if xerr != nil {
+			snap.Errors = append(snap.Errors, "xruns: "+xerr.Error())
+		} else {
+			snap.Jack.Xruns = xruns
+			snap.Jack.LastXrun = lastLine
+			snap.Jack.XrunsDelta = xruns - c.lastXruns
+			c.lastXruns = xruns
 		}
 	}
 
-	snap.Jack.Running = isServiceActive(ctx, "jackd")
+	/* ROUTING */
+	if c.cfg.Routing.Enabled {
+		ports, edges, summary, missing, ok, probeErr := collectRouting(ctx, c.cfg.Routing.JackLspCmd, c.cfg.Routing.Env, c.cfg.Routing.Expect)
 
-	// XRuns: journalctl parse (cached via collector)
-	xruns, lastLine, xerr := countXruns(ctx)
-	if xerr != nil {
-		snap.Errors = append(snap.Errors, "xruns: "+xerr.Error())
-	} else {
-		snap.Jack.Xruns = xruns
-		snap.Jack.LastXrun = lastLine
-		snap.Jack.XrunsDelta = xruns - c.lastXruns
-		if lastLine != "" {
-			c.lastXrunAt = lastLine
+		if probeErr != nil {
+			snap.Routing.ProbeOK = false
+			snap.Routing.ProbeError = probeErr.Error()
+			// Important: this is a probe failure, not "routing is wrong".
+			// We keep OK=false because expectations cannot be evaluated without a graph.
+			snap.Routing.OK = false
+			snap.Errors = append(snap.Errors, "routing probe: "+probeErr.Error())
+		} else {
+			snap.Routing.ProbeOK = true
+			snap.Routing.Ports = ports
+			snap.Routing.Edges = edges
+			snap.Routing.Summary = summary
+			snap.Routing.Missing = missing
+			snap.Routing.OK = ok
 		}
-		c.lastXruns = xruns
+
+		// If routing probe is enabled, it is the best "JACK running" signal:
+		// - ProbeOK=true means jack_lsp connected to the server and we can query the graph.
+		// - ProbeOK=false means JACK is not reachable *from this process context* (env/user/runtime).
+		if c.cfg.Jack.Enabled {
+			snap.Jack.Running = snap.Routing.ProbeOK
+		}
+	}
+	// If routing is disabled, still try to determine JACK reachability via jack_lsp.
+	// This keeps jack.running meaningful even when you don't want routing expectations.
+	if c.cfg.Jack.Enabled && !c.cfg.Routing.Enabled {
+		cmd := c.cfg.Routing.JackLspCmd
+		if len(cmd) == 0 {
+			cmd = []string{"jack_lsp"} // minimal ping
+		}
+		_, err := runLines(ctx, 800*time.Millisecond, cmd, c.cfg.Routing.Env)
+		if err == nil {
+			snap.Jack.Running = true
+		} else {
+			// keep whatever fallback (systemd) decided; do not spam Errors unless you want it
+		}
+	}
+	/* MIDI */
+	if c.cfg.Midi.Enabled {
+		if len(c.cfg.Midi.AconnectCmd) > 0 {
+			lines, err := runLines(ctx, 1200*time.Millisecond, c.cfg.Midi.AconnectCmd, nil)
+			if err != nil {
+				snap.Errors = append(snap.Errors, "midi alsa: "+err.Error())
+			} else {
+				snap.MIDI.ALSA = lines
+			}
+		}
+
+		// 1) ALSA-based detection (independent of routing)
+		alsaMatched := false
+		if c.cfg.Midi.ALSARequiredRegex != "" && len(snap.MIDI.ALSA) > 0 {
+			re, err := regexp.Compile(c.cfg.Midi.ALSARequiredRegex)
+			if err != nil {
+				snap.Errors = append(snap.Errors, "midi alsa_required_regex: "+err.Error())
+			} else {
+				all := strings.Join(snap.MIDI.ALSA, "\n")
+				if re.MatchString(all) {
+					alsaMatched = true
+					snap.MIDI.Connected = true
+					snap.MIDI.Details = "alsa: matched"
+				}
+			}
+		}
+
+		// 2) Routing-based detection (only if routing probe succeeded and summary exists)
+		if !snap.MIDI.Connected && c.cfg.Midi.ConnectedRegex != "" && len(snap.Routing.Summary) > 0 {
+			re, err := regexp.Compile(c.cfg.Midi.ConnectedRegex)
+			if err != nil {
+				snap.Errors = append(snap.Errors, "midi connected_regex: "+err.Error())
+			} else {
+				for _, e := range snap.Routing.Summary {
+					if re.MatchString(e) {
+						snap.MIDI.Connected = true
+						snap.MIDI.Details = e
+						break
+					}
+				}
+				if !snap.MIDI.Connected && !alsaMatched {
+					snap.MIDI.Details = "not detected"
+				}
+			}
+		}
+
+		// If neither method is configured, remain false but be explicit.
+		if !snap.MIDI.Connected && c.cfg.Midi.ALSARequiredRegex == "" && c.cfg.Midi.ConnectedRegex == "" {
+			snap.MIDI.Details = "no detection regex configured"
+		}
 	}
 
-	// JACK routing + ports
-	portsOut, edgesOut, rSum, missing, rok, rerr := collectRouting(ctx)
-	if rerr != nil {
-		snap.Errors = append(snap.Errors, "routing: "+rerr.Error())
-	} else {
-		snap.Routing.Ports = portsOut
-		snap.Routing.Edges = edgesOut
-		snap.Routing.Summary = rSum
-		snap.Routing.Missing = missing
-		snap.Routing.OK = rok
+	/* AUDIO IF */
+	if c.cfg.AudioIF.Enabled && c.cfg.AudioIF.AsoundCardsPath != "" {
+		lines, err := readFileLines(c.cfg.AudioIF.AsoundCardsPath, 120)
+		if err == nil {
+			snap.AudioIF.AsoundCards = lines
+		}
 	}
 
-	// MIDI (ALSA + JACK MIDI ports + connection heuristic)
-	alsa, aerr := runLines(ctx, 1200*time.Millisecond, "aconnect", "-l")
-	if aerr != nil {
-		snap.Errors = append(snap.Errors, "midi alsa: "+aerr.Error())
-	} else {
-		snap.MIDI.ALSA = alsa
+	/* CPU/MEM/DISK */
+	if c.cfg.CPU.Enabled {
+		if v, err := readLoad1(); err == nil {
+			snap.CPU.Load1 = v
+		}
+		if g, err := readGovernor(); err == nil {
+			snap.CPU.Governor = g
+		}
+		if t, err := readTempC(); err == nil {
+			snap.CPU.TempC = t
+		}
+	}
+	if c.cfg.Mem.Enabled {
+		snap.Mem = readMem()
+	}
+	if c.cfg.Disk.Enabled {
+		snap.Disk = readDisk(c.cfg.Disk.Path)
 	}
 
-	jm, jerr := jackMidiPorts(ctx)
-	if jerr != nil {
-		snap.Errors = append(snap.Errors, "midi jack: "+jerr.Error())
-	} else {
-		snap.MIDI.Jack = jm
-	}
-
-	connected, details := midiConnectionStatus(rSum)
-	snap.MIDI.Connected = connected
-	snap.MIDI.Details = details
-
-	// Audio interface identity (asound cards)
-	asound, cerr := readFileLines("/proc/asound/cards", 120)
-	if cerr == nil {
-		snap.AudioIF.AsoundCards = asound
-	}
-
-	// CPU + governor + temp
-	load1, _ := readLoad1()
-	snap.CPU.Load1 = load1
-	snap.CPU.Governor, _ = readGovernor()
-	snap.CPU.TempC, _ = readTempC()
-
-	// Mem + disk
-	snap.Mem = readMem()
-	snap.Disk = readDisk("/")
-
-	// Store cache
 	c.cache = snap
 	c.cacheAt = time.Now()
 	return snap
 }
+
+/* ---------------- Mock ---------------- */
+
+func snapshotFromMockFile(path string) Snapshot {
+	now := time.Now().Unix()
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return Snapshot{TS: now, Errors: []string{"sysinfo mock read: " + err.Error()}}
+	}
+	var s Snapshot
+	if err := json.Unmarshal(b, &s); err != nil {
+		return Snapshot{TS: now, Errors: []string{"sysinfo mock json: " + err.Error()}}
+	}
+	s.TS = now
+	return s
+}
+
+/* ---------------- Jack unit parsing ---------------- */
 
 type jackUnitCfg struct {
 	Driver  string
@@ -257,7 +481,6 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 	}
 	txt := string(b)
 
-	// Find ExecStart=...
 	var execLine string
 	sc := bufio.NewScanner(strings.NewReader(txt))
 	for sc.Scan() {
@@ -271,7 +494,6 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 		return jackUnitCfg{}, errors.New("ExecStart not found")
 	}
 
-	// Tokenize (simple split; args have no quotes in your unit)
 	args := strings.Fields(execLine)
 
 	cfg := jackUnitCfg{
@@ -279,10 +501,8 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 		RT:     contains(args, "-R"),
 	}
 
-	// Parse -P95, -dhw:..., -r48000, -p256, -n2
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-
 		if strings.HasPrefix(a, "-P") {
 			cfg.RTPrio, _ = strconv.Atoi(strings.TrimPrefix(a, "-P"))
 			continue
@@ -292,7 +512,6 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 			continue
 		}
 		if strings.HasPrefix(a, "-d") && a != "-dalsa" {
-			// e.g. -dhw:CARD=Audio,DEV=0
 			cfg.Device = strings.TrimPrefix(a, "-d")
 			continue
 		}
@@ -310,7 +529,6 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 		}
 	}
 
-	// sanity: your unit uses hw:... in -d
 	if cfg.Device == "" {
 		cfg.Device = "hw:UNKNOWN"
 	}
@@ -326,23 +544,37 @@ func contains(xs []string, s string) bool {
 	return false
 }
 
+/* ---------------- Probing helpers ---------------- */
+
 func isServiceActive(ctx context.Context, name string) bool {
-	out, err := run(ctx, 900*time.Millisecond, "systemctl", "is-active", name)
+	out, err := run(ctx, 900*time.Millisecond, "systemctl", nil, name, "is-active")
 	if err != nil {
 		return false
 	}
 	return strings.TrimSpace(out) == "active"
 }
 
-func countXruns(ctx context.Context) (count int, lastLine string, err error) {
-	// We keep it short; if needed, increase -n. Cache avoids heavy calls.
-	out, err := run(ctx, 1500*time.Millisecond, "journalctl", "-u", "jackd", "-n", "250", "--no-pager", "-o", "short-iso")
+func countXruns(ctx context.Context, unit string, lines int, xrunRegex string) (count int, lastLine string, err error) {
+	if unit == "" {
+		return 0, "", nil
+	}
+	if lines <= 0 {
+		lines = 250
+	}
+	if xrunRegex == "" {
+		xrunRegex = `(?i)\bxrun\b`
+	}
+	re, err := regexp.Compile(xrunRegex)
+	if err != nil {
+		return 0, "", err
+	}
+
+	out, err := run(ctx, 1500*time.Millisecond, "journalctl", nil, "-u", unit, "-n", strconv.Itoa(lines), "--no-pager", "-o", "short-iso")
 	if err != nil {
 		return 0, "", err
 	}
 
 	sc := bufio.NewScanner(strings.NewReader(out))
-	re := regexp.MustCompile(`(?i)\bxrun\b`)
 	for sc.Scan() {
 		line := sc.Text()
 		if re.MatchString(line) {
@@ -353,26 +585,20 @@ func countXruns(ctx context.Context) (count int, lastLine string, err error) {
 	return count, lastLine, nil
 }
 
-func collectRouting(ctx context.Context) (ports int, edges int, summary []string, missing []string, ok bool, err error) {
-	out, err := run(ctx, 1200*time.Millisecond, "jack_lsp", "-c")
-	if err != nil && isServiceActive(ctx, "jackd") {
-		if uid, gid, e := jackdUIDGID(); e == nil {
-			out2, err2 := runAsUIDGID(ctx, 1500*time.Millisecond, uid, gid, "jack_lsp", "-c")
-			if err2 == nil {
-				out = out2
-				err = nil
-			}
-		}
+func collectRouting(ctx context.Context, jackLspCmd []string, env map[string]string, expect []struct {
+	ID        string `json:"id"`
+	FromRegex string `json:"from_regex"`
+	ToRegex   string `json:"to_regex"`
+	Message   string `json:"message"`
+}) (ports int, edges int, summary []string, missing []string, ok bool, err error) {
+	if len(jackLspCmd) == 0 {
+		jackLspCmd = []string{"jack_lsp", "-c"}
 	}
+	out, err := runCmd(ctx, 1200*time.Millisecond, jackLspCmd, env)
 	if err != nil {
 		return 0, 0, nil, nil, false, err
 	}
 
-	// Parse jack_lsp -c:
-	// PortName
-	//    connectedPort
-	//    connectedPort
-	// NextPort
 	type node struct {
 		name  string
 		conns []string
@@ -398,88 +624,57 @@ func collectRouting(ctx context.Context) (ports int, edges int, summary []string
 	}
 
 	ports = len(nodes)
-	// Count edges
 	for _, n := range nodes {
 		edges += len(n.conns)
 	}
 
-	// Heuristics for NAMNESIS:
-	// - We want at least one capture->stompbox in
-	// - and one stompbox out->playback
-	hasIn := false
-	hasOut := false
-
 	for _, n := range nodes {
 		p := n.name
 		for _, c := range n.conns {
-			// summary lines (bounded)
-			if len(summary) < 80 {
+			if len(summary) < 200 {
 				summary = append(summary, fmt.Sprintf("%s -> %s", p, c))
-			}
-
-			pl := strings.ToLower(p)
-			cl := strings.ToLower(c)
-
-			if strings.Contains(pl, "capture") && strings.Contains(cl, "stompbox") && strings.Contains(cl, "in") {
-				hasIn = true
-			}
-			if strings.Contains(pl, "stompbox") && strings.Contains(pl, "out") && strings.Contains(cl, "playback") {
-				hasOut = true
 			}
 		}
 	}
 
-	// Missing indicators (soft, not strict port names)
-	if !hasIn {
-		missing = append(missing, "capture -> stompbox:in (no connection detected)")
+	// Expectations are purely config-driven.
+	matched := make(map[string]bool)
+	for _, ex := range expect {
+		fromRe, e1 := regexp.Compile(ex.FromRegex)
+		toRe, e2 := regexp.Compile(ex.ToRegex)
+		if e1 != nil || e2 != nil {
+			if e1 != nil {
+				missing = append(missing, "routing expect regex error: "+ex.ID+": "+e1.Error())
+			}
+			if e2 != nil {
+				missing = append(missing, "routing expect regex error: "+ex.ID+": "+e2.Error())
+			}
+			continue
+		}
+		for _, edge := range summary {
+			parts := strings.Split(edge, " -> ")
+			if len(parts) != 2 {
+				continue
+			}
+			if fromRe.MatchString(parts[0]) && toRe.MatchString(parts[1]) {
+				matched[ex.ID] = true
+				break
+			}
+		}
 	}
-	if !hasOut {
-		missing = append(missing, "stompbox:out -> playback (no connection detected)")
+
+	for _, ex := range expect {
+		if ex.ID != "" && !matched[ex.ID] {
+			msg := ex.Message
+			if msg == "" {
+				msg = "missing: " + ex.ID
+			}
+			missing = append(missing, msg)
+		}
 	}
 
 	ok = (len(missing) == 0)
 	return ports, edges, summary, missing, ok, nil
-}
-
-func jackMidiPorts(ctx context.Context) ([]string, error) {
-	out, err := run(ctx, 1200*time.Millisecond, "jack_lsp")
-	if err != nil && isServiceActive(ctx, "jackd") {
-		if uid, gid, e := jackdUIDGID(); e == nil {
-			out2, err2 := runAsUIDGID(ctx, 1500*time.Millisecond, uid, gid, "jack_lsp")
-			if err2 == nil {
-				out = out2
-				err = nil
-			}
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	lines := []string{}
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		l := strings.TrimSpace(sc.Text())
-		ll := strings.ToLower(l)
-		if strings.Contains(ll, "midi") || strings.Contains(ll, "a2j") {
-			lines = append(lines, l)
-		}
-	}
-	return lines, nil
-}
-
-
-
-func midiConnectionStatus(routingSummary []string) (bool, string) {
-	// Look for a2j + sinco -> stompbox midi_in (best-effort; port naming can vary).
-	// Example ports could be: a2j:SINCO ... , stompbox:midi_in
-	for _, e := range routingSummary {
-		low := strings.ToLower(e)
-		if strings.Contains(low, "a2j") && strings.Contains(low, "sinco") && strings.Contains(low, "stompbox") && strings.Contains(low, "midi") {
-			return true, e
-		}
-	}
-	return false, "a2j:SINCO -> stompbox:midi_in not detected"
 }
 
 func readLoad1() (float64, error) {
@@ -495,7 +690,6 @@ func readLoad1() (float64, error) {
 }
 
 func readGovernor() (string, error) {
-	// Most systems expose cpu0 governor here
 	p := "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
 	b, err := os.ReadFile(p)
 	if err != nil {
@@ -505,13 +699,11 @@ func readGovernor() (string, error) {
 }
 
 func readTempC() (float64, error) {
-	// Read max temperature among thermal zones
 	base := "/sys/class/thermal"
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return 0, err
 	}
-
 	maxC := -1.0
 	for _, e := range entries {
 		if !strings.HasPrefix(e.Name(), "thermal_zone") {
@@ -527,7 +719,6 @@ func readTempC() (float64, error) {
 		if err != nil {
 			continue
 		}
-		// Most report millidegrees
 		if v > 1000 {
 			v = v / 1000.0
 		}
@@ -574,7 +765,6 @@ func readDisk(path string) DiskInfo {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return di
 	}
-	// free bytes = bavail * bsize
 	free := float64(st.Bavail) * float64(st.Bsize)
 	di.RootFreeGB = free / (1024.0 * 1024.0 * 1024.0)
 	return di
@@ -596,8 +786,8 @@ func readFileLines(path string, limit int) ([]string, error) {
 	return lines, nil
 }
 
-func runLines(ctx context.Context, timeout time.Duration, cmd string, args ...string) ([]string, error) {
-	out, err := run(ctx, timeout, cmd, args...)
+func runLines(ctx context.Context, timeout time.Duration, cmd []string, env map[string]string) ([]string, error) {
+	out, err := runCmd(ctx, timeout, cmd, env)
 	if err != nil {
 		return nil, err
 	}
@@ -609,87 +799,33 @@ func runLines(ctx context.Context, timeout time.Duration, cmd string, args ...st
 	return lines, nil
 }
 
-func run(ctx context.Context, timeout time.Duration, cmd string, args ...string) (string, error) {
-	return runEnv(ctx, timeout, nil, cmd, args...)
+func run(ctx context.Context, timeout time.Duration, cmd string, env map[string]string, args ...string) (string, error) {
+	full := append([]string{cmd}, args...)
+	return runCmd(ctx, timeout, full, env)
 }
 
-func runEnv(ctx context.Context, timeout time.Duration, env []string, cmd string, args ...string) (string, error) {
+func runCmd(ctx context.Context, timeout time.Duration, cmd []string, env map[string]string) (string, error) {
+	if len(cmd) == 0 {
+		return "", errors.New("empty command")
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	c := exec.CommandContext(cctx, cmd, args...)
-	if env != nil {
-		c.Env = append(os.Environ(), env...)
-	}
-
-	b, err := c.CombinedOutput()
-	if cctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("%s timeout", cmd)
-	}
-	if err != nil {
-		// include stderr/stdout for debugging
-		return "", fmt.Errorf("%s: %v: %s", cmd, err, strings.TrimSpace(string(b)))
-	}
-	return string(b), nil
-}
-
-func runAsUIDGID(ctx context.Context, timeout time.Duration, uid, gid int, cmd string, args ...string) (string, error) {
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	c := exec.CommandContext(cctx, cmd, args...)
-	c.SysProcAttr = &syscall.SysProcAttr{
-		Credential: &syscall.Credential{
-			Uid: uint32(uid),
-			Gid: uint32(gid),
-		},
-	}
-
-	b, err := c.CombinedOutput()
-	if cctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("%s timeout", cmd)
-	}
-	if err != nil {
-		return "", fmt.Errorf("%s: %v: %s", cmd, err, strings.TrimSpace(string(b)))
-	}
-	return string(b), nil
-}
-
-func uidOf(user string) (int, error) {
-	lines, err := readFileLines("/etc/passwd", 0)
-	if err != nil {
-		return 0, err
-	}
-	for _, l := range lines {
-		if strings.HasPrefix(l, user+":") {
-			parts := strings.Split(l, ":")
-			if len(parts) >= 3 {
-				return strconv.Atoi(parts[2])
-			}
+	c := exec.CommandContext(cctx, cmd[0], cmd[1:]...)
+	if env != nil && len(env) > 0 {
+		merged := os.Environ()
+		for k, v := range env {
+			merged = append(merged, fmt.Sprintf("%s=%s", k, v))
 		}
+		c.Env = merged
 	}
-	return 0, fmt.Errorf("user not found: %s", user)
-}
 
-func jackEnvForUser(user string) []string {
-	uid, err := uidOf(user)
+	b, err := c.CombinedOutput()
+	if cctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("%s timeout", cmd[0])
+	}
 	if err != nil {
-		return nil
+		return "", fmt.Errorf("%s: %v: %s", cmd[0], err, strings.TrimSpace(string(b)))
 	}
-	return []string{
-		fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%d", uid),
-		"HOME=/home/" + user,
-		"USER=" + user,
-		"LOGNAME=" + user,
-	}
+	return string(b), nil
 }
-
-
-// Optional: JSON helper for report endpoints later
-func (s Snapshot) PrettyJSON() string {
-	b, _ := json.MarshalIndent(s, "", "  ")
-	return string(b)
-}
-
-// Silence unused imports when building without some paths
-var _ fs.FileInfo

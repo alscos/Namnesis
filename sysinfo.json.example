@@ -1,0 +1,140 @@
+{
+  // sysinfo.json.example (JSONC-style: comments allowed here)
+  //
+  // How to use:
+  // 1) Copy to sysinfo.json:
+  //      cp sysinfo.json.example sysinfo.json
+  // 2) Point the gateway to it (recommended):
+  //      export SYSINFO_CONFIG=/opt/namnesis/namnesis-ui-gateway/sysinfo.json
+  //    or set it in /etc/namnesis-ui-gateway.env:
+  //      SYSINFO_CONFIG=/opt/namnesis/namnesis-ui-gateway/sysinfo.json
+  //
+  // IMPORTANT: JACK observability depends on process context.
+  // - If the gateway runs as the SAME user that runs JACK/stompbox (recommended), no extra env is usually needed.
+  // - If the gateway runs as root, you typically MUST set XDG_RUNTIME_DIR for jack_lsp:
+  //     /run/user/<UID>
+  //   where UID is the user running JACK.
+  //
+  // Recommended systemd pattern:
+  //   [Service]
+  //   User=ale
+  //   Group=ale
+
+  // Cache TTL for /api/system snapshots (avoid hammering journalctl/jack_lsp/aconnect)
+  "cache_ttl_ms": 1200,
+
+  "jack": {
+    // Enable JACK unit parsing + xrun monitoring.
+    "enabled": true,
+
+    // OPTIONAL: service name used for fallback checks.
+    // Do not rely on this to mean JACK is reachable.
+    "service_name": "jackd",
+
+    // Path to a unit file used to parse SR/buffer/periods/rtprio for display.
+    // If your JACK is not managed by this unit, you can disable jack.enabled
+    // or point unit_path to your actual unit.
+    "unit_path": "/etc/systemd/system/jackd.service",
+
+    // Journald unit to query for xruns. This must match what journalctl expects.
+    // Examples:
+    //   "jackd"          (classic jackd)
+    //   "pipewire"       (if using PipeWire JACK)
+    //   "stompbox"       (if xruns are logged there)
+    "journal_unit": "jackd",
+
+    // How many journal lines to scan each poll. Increase if xruns happen infrequently.
+    "journal_lines": 400,
+
+    // Regex used to detect xruns in the selected journal stream.
+    // Use a broad match unless you have very specific log format.
+    "xrun_regex": "(?i)\\bxrun\\b"
+  },
+
+  "routing": {
+    // Enable probing JACK graph via jack_lsp -c.
+    // When enabled, routing.probe_ok becomes the authoritative signal that JACK is reachable.
+    "enabled": true,
+
+    // Command used to list connections (must output lines with "A\n   B" style when -c is used).
+    "jack_lsp_cmd": ["jack_lsp", "-c"],
+
+    // Environment passed ONLY to jack_lsp_cmd (not global process env).
+    // Set XDG_RUNTIME_DIR if your gateway runs as root or in a different user session.
+    //
+    // If gateway runs as the same user as JACK, you can usually omit this entirely.
+    "env": {
+      "XDG_RUNTIME_DIR": "/run/user/1000"
+    },
+
+    // Expectations: check for specific edges in the JACK graph.
+    // Each entry defines a "from" regex + "to" regex.
+    // If an expectation fails, it appears in routing.missing and routing.ok becomes false.
+    "expect": [
+      {
+        "id": "guitar_input",
+        "from_regex": "^system:capture_2$",
+        "to_regex": "^stompbox:input_1$",
+        "message": "Guitar input (system:capture_2 -> stompbox:input_1) not detected"
+      },
+      {
+        "id": "audio_out_left",
+        "from_regex": "^stompbox:output_1$",
+        "to_regex": "^system:playback_1$",
+        "message": "Left output (stompbox:output_1 -> system:playback_1) not detected"
+      },
+      {
+        "id": "audio_out_right",
+        "from_regex": "^stompbox:output_2$",
+        "to_regex": "^system:playback_2$",
+        "message": "Right output (stompbox:output_2 -> system:playback_2) not detected"
+      },
+
+      // Example MIDI expectation: a2j bridge port into stompbox:midi_in
+      // Adjust "sinco" to your pedal/device identifier as it appears in jack_lsp summary.
+      {
+        "id": "midi_in",
+        "from_regex": "(?i)^a2j:.*sinco.*$",
+        "to_regex": "^stompbox:midi_in$",
+        "message": "MIDI routing (device -> stompbox:midi_in) not detected"
+      }
+    ]
+  },
+
+  "midi": {
+    "enabled": true,
+
+    // ALSA MIDI listing command. Usually: aconnect -l
+    "aconnect_cmd": ["aconnect", "-l"],
+
+    // Optional: prove the device exists at the ALSA layer.
+    // This matches against the FULL aconnect -l output (joined by newlines).
+    //
+    // Examples:
+    //   "(?i)client\\s+\\d+:\\s+'SINCO'\\b"
+    //   "(?i)client\\s+\\d+:\\s+'M-Wave'\\b"
+    "alsa_required_regex": "(?i)client\\s+\\d+:\\s+'SINCO'\\b",
+
+    // Optional: prove MIDI is actually routed into stompbox (requires routing probe ok).
+    // This matches against routing.summary edges.
+    //
+    // Example summary line:
+    //   "a2j:SINCO [16] (capture): [0] SINCO MIDI 1 -> stompbox:midi_in"
+    "connected_regex": "(?i)^a2j:.*sinco.*->\\s*stompbox:midi_in$"
+  },
+
+  "audioif": {
+    "enabled": true,
+    // ALSA cards list; linux standard is /proc/asound/cards
+    "asound_cards_path": "/proc/asound/cards"
+  },
+
+  "cpu": { "enabled": true },
+  "mem": { "enabled": true },
+
+  "disk": {
+    "enabled": true,
+    // Filesystem path to measure free space for ("/" is typical)
+    "path": "/"
+  }
+}
