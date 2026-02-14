@@ -1,0 +1,46 @@
+{
+  "cache_ttl_ms": 1500,
+
+  "jack": {
+    "enabled": true,
+    "service_name": "jackd",
+    "unit_path": "/etc/systemd/system/jackd.service",
+    "journal_unit": "jackd",
+    "journal_lines": 250,
+    "xrun_regex": "(?i)\\bxrun\\b"
+  },
+
+  "routing": {
+    "enabled": true,
+    "jack_lsp_cmd": ["jack_lsp", "-c"],
+    "expect": [
+      {
+        "id": "audio_in",
+        "from_regex": "^system:capture_.*$",
+        "to_regex": "^stompbox:input_.*$",
+        "message": "Audio input routing not detected"
+      },
+      {
+        "id": "audio_out",
+        "from_regex": "^stompbox:output_.*$",
+        "to_regex": "^system:playback_.*$",
+        "message": "Audio output routing not detected"
+      }
+    ]
+  },
+
+  "midi": {
+    "enabled": true,
+    "aconnect_cmd": ["aconnect", "-l"],
+    "connected_regex": "stompbox:midi_in"
+  },
+
+  "audioif": {
+    "enabled": true,
+    "asound_cards_path": "/proc/asound/cards"
+  },
+
+  "cpu": { "enabled": true },
+  "mem": { "enabled": true },
+  "disk": { "enabled": true, "path": "/" }
+}
