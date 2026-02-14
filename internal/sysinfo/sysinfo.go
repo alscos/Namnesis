@@ -284,6 +284,9 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 
 	/* JACK */
 	if c.cfg.Jack.Enabled {
+		// NOTE: Do not conflate "systemd unit active" with "JACK is reachable".
+		// We keep a systemd check only as a fallback signal when we cannot probe JACK.
+		serviceActive := false
 		jackCfg, err := parseJackdUnit(c.cfg.Jack.UnitPath)
 		if err != nil {
 			snap.Errors = append(snap.Errors, "jack unit parse: "+err.Error())
@@ -301,7 +304,9 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 		}
 
 		if c.cfg.Jack.ServiceName != "" {
-			snap.Jack.Running = isServiceActive(ctx, c.cfg.Jack.ServiceName)
+			serviceActive = isServiceActive(ctx, c.cfg.Jack.ServiceName)
+			// provisional; may be overridden by a real probe below
+			snap.Jack.Running = serviceActive
 		}
 
 		xruns, lastLine, xerr := countXruns(ctx, c.cfg.Jack.JournalUnit, c.cfg.Jack.JournalLines, c.cfg.Jack.XrunRegex)
@@ -334,8 +339,28 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 			snap.Routing.Missing = missing
 			snap.Routing.OK = ok
 		}
-	}
 
+		// If routing probe is enabled, it is the best "JACK running" signal:
+		// - ProbeOK=true means jack_lsp connected to the server and we can query the graph.
+		// - ProbeOK=false means JACK is not reachable *from this process context* (env/user/runtime).
+		if c.cfg.Jack.Enabled {
+			snap.Jack.Running = snap.Routing.ProbeOK
+		}
+	}
+	// If routing is disabled, still try to determine JACK reachability via jack_lsp.
+	// This keeps jack.running meaningful even when you don't want routing expectations.
+	if c.cfg.Jack.Enabled && !c.cfg.Routing.Enabled {
+		cmd := c.cfg.Routing.JackLspCmd
+		if len(cmd) == 0 {
+			cmd = []string{"jack_lsp"} // minimal ping
+		}
+		_, err := runLines(ctx, 800*time.Millisecond, cmd, c.cfg.Routing.Env)
+		if err == nil {
+			snap.Jack.Running = true
+		} else {
+			// keep whatever fallback (systemd) decided; do not spam Errors unless you want it
+		}
+	}
 	/* MIDI */
 	if c.cfg.Midi.Enabled {
 		if len(c.cfg.Midi.AconnectCmd) > 0 {
