@@ -4,6 +4,16 @@
     const U = () => window.NAMNESIS.util;
     const A = () => window.NAMNESIS.api;
 
+    // Parse a number even if the string includes units (e.g. "0 dB", "-3.5", "12.0ms").
+    // Returns NaN if it doesn't start with a numeric token.
+    function toNumberLoose(v) {
+        if (typeof v === 'number') return v;
+        if (typeof v !== 'string') return NaN;
+        const s = v.trim();
+        const m = s.match(/^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/i);
+        if (!m) return NaN;
+        return Number(m[0]);
+    }
     R.tile = function tile(text) {
         const d = document.createElement('div');
         d.className = 'tile';
@@ -341,7 +351,7 @@
         head.appendChild(title);
         head.appendChild(state);
         el.appendChild(head);
-        
+
         // --- NEW: corner actions (Unload / Move Up / Move Down)
         // Only render if callbacks provided.
         if (typeof onUnload === 'function') {
@@ -417,11 +427,52 @@
 
         for (const k of keys) {
             const raw = pluginParams?.[k];
-            const n = Number(raw);
+            const n = toNumberLoose(raw);
             const meta = paramMetaForThisPlugin?.[k] || null;
+            const metaType = String(meta?.type || '').toLowerCase();
+            const lname = String(k || '').toLowerCase();
+
+            const isLevelish =
+                lname === 'level' ||
+                lname === 'gain' ||
+                lname === 'vol' ||
+                lname === 'volume' ||
+                lname === 'threshold';
+
+            
+
+            // Note: meta is declared as const above; we create a new reference for downstream logic.
+            const meta2 = (!meta || !Number.isFinite(meta.min) || !Number.isFinite(meta.max))
+                ? (
+                    (lname === 'volume' || lname === 'vol' || lname === 'gain')
+                      ? { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' }
+                      : (isLevelish ? { min: -24, max: 24, step: 0.1, def: 0, unit: 'dB' } : meta)
+                  )
+                : meta;
+            // --- 2.5) HARDEN: "Level" plugin semantics
+            // Stompbox "Level" plugin exposes:
+            //   - Volume : writable trim (persisted)
+            //   - Level  : read-only meter/output (always returns ~0 / runtime value, not persisted)
+            // So: force Volume to slider and force Level to read-only.
+            if (baseType === 'Level') {
+                if (lname === 'level') {
+                    body.appendChild(R.buildReadOnlyRow(k, raw));
+                    continue;
+                }
+                if (lname === 'volume') {
+                    const v = Number.isFinite(n) ? n : 0;
+                    const m = (meta2 && Number.isFinite(meta2.min) && Number.isFinite(meta2.max))
+                      ? meta2
+                      : { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' };
+                    body.appendChild(
+                        R.buildNumericSliderRow(pluginName, k, v, m, (val) => onParamCommit(pluginName, k, val))
+                    );
+                    continue;
+                }
+            }
 
             // --- 1) Output-only params are always read-only
-            if (meta?.isOutput) {
+            if (meta?.isOutput && !isLevelish) {
                 body.appendChild(R.buildReadOnlyRow(k, raw));
                 continue;
             }
@@ -429,7 +480,7 @@
             // --- 2) File params (Model / Impulse) => dropdown if we have tree
             // In DumpConfig trees are keyed by BASE type (e.g. "ConvoReverb.Impulse"),
             // while program instances are "ConvoReverb_2", "ConvoReverb_3", etc.
-            const metaType = String(meta?.type || '').toLowerCase();
+
             const isFileParam = (k === 'Model' || k === 'Impulse') && metaType === 'file';
 
             if (isFileParam) {
@@ -465,13 +516,12 @@
                 continue;
             }
 
-            // --- 3) Decide if numeric slider/toggle is allowed
             const allow =
-                !meta?.isOutput &&
-                meta &&
+                (meta?.isOutput ? isLevelish : true) &&
+                meta2 &&
                 metaType !== 'bool' &&
-                Number.isFinite(meta.min) &&
-                Number.isFinite(meta.max) &&
+                Number.isFinite(meta2.min) &&
+                Number.isFinite(meta2.max) &&
                 k !== 'Model' &&
                 k !== 'Impulse';
 
@@ -486,13 +536,13 @@
             const canSlider =
                 allow &&
                 Number.isFinite(n) &&
-                meta &&
+                meta2 &&
                 metaType !== 'bool' &&
-                Number.isFinite(meta.min) &&
-                Number.isFinite(meta.max);
+                Number.isFinite(meta2.min) &&
+                Number.isFinite(meta2.max);
 
             if (canSlider) {
-                body.appendChild(R.buildNumericSliderRow(pluginName, k, n, meta, (val) => onParamCommit(pluginName, k, val)));
+                body.appendChild(R.buildNumericSliderRow(pluginName, k, n, meta2, (val) => onParamCommit(pluginName, k, val)));
                 continue;
             }
 

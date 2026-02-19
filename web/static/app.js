@@ -41,7 +41,7 @@
     'Attack', 'Release', 'Threshold', 'Strength',
     'Depth', 'Rate', 'FBack', 'Ratio', 'Speed',
     'Dry', 'Wet', 'Mix',
-    'Gain', 'Level', 'Tone',
+    'Gain', 'Volume', 'Vol', 'Level', 'Tone',
     'Bias',
     'Soft', 'Blend', 'Comp', 'Wah', 'Fuzz', 'Octave',
     'FrqWidth', 'Shape', 'Delay', 'HiLo', 'High', 'Low',
@@ -117,6 +117,9 @@
       AutoWah: ['Level', 'Wah'],
       Wah: ['Wah'],
       HighLow: ['High', 'Low'],
+      Level: ['Volume'],
+      Master: ['Volume'],
+      Input: ['Gain'],
       // (optional) keep a fallback preferred for EQ-7 if you ever render it in pills
       'EQ-7': ['100', '200', '400', '800', '1.6k', '3.2k', '6.4k', 'Vol'],
       'BEQ-7': ['50', '120', '400', '800', '1.6k', '4.5k', '10.0k', 'Vol'],
