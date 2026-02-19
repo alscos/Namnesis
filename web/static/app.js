@@ -1,7 +1,7 @@
 // app.js (entrypoint)
 (() => {
   const { api: A, parse: P, render: R } = window.NAMNESIS;
-
+  const FALLBACK_PLUGIN_TYPES = ['NAM', 'Cabinet', 'EQ-7', 'BEQ-7', 'NoiseGate', 'Compressor', 'Delay', 'Reverb', 'ConvoReverb', 'Chorus', 'Flanger', 'Phaser', 'Tremolo', 'Vibrato', 'Boost', 'Screamer', 'Fuzz', 'AutoWah', 'Wah', 'HighLow'];
   const elNow = document.getElementById('now');
   const elStatus = document.getElementById('status');
   const elPreset = document.getElementById('presetSelect');
@@ -67,6 +67,25 @@
     btn.classList.add("opacity-50", "cursor-not-allowed");
   }
 
+  // Prefer the ALSA "CARD=" that JACK is actually using (stable across hotplug).
+  function getJackCardShortname(jackDevice) {
+    if (!jackDevice) return null;
+    // examples:
+    //  - "hw:CARD=Audio,DEV=0"
+    //  - "plughw:CARD=Audio,DEV=0"
+    const m = String(jackDevice).match(/CARD=([^,]+)/);
+    return m ? m[1] : null;
+  }
+
+  function pickActiveAsoundCardLine(asoundCards, jackDevice) {
+    const cards = Array.isArray(asoundCards) ? asoundCards : [];
+    const card = getJackCardShortname(jackDevice);
+    if (card) {
+      const hit = cards.find(line => String(line).includes(`[${card}]`));
+      if (hit) return hit;
+    }
+    return cards[0] || null; // fallback
+  }
   function enableBtn(btn) {
     if (!btn) return;
     btn.disabled = false;
@@ -757,8 +776,11 @@
       }
 
       // Audio IF
-      const ifName = extractAudioIFName(s.audioif?.asound_cards);
-      document.getElementById("sysIF").textContent = `IF ${ifName}`;
+      const line = pickActiveAsoundCardLine(s.audioif?.asound_cards, s.jack?.device);
+      const ifName = line?.match(/\]:\s(.+)/)?.[1] || "—";
+      // keep your current "first token" behavior, but now it's the active card
+      const short = (ifName === "—") ? "—" : ifName.split(" ")[0];
+      document.getElementById("sysIF").textContent = `IF ${short}`;
 
 
     } catch (e) {
@@ -775,7 +797,7 @@
       state.presetWatchTimer = null;
     }
   }
-function applyRefreshModeUI() {
+  function applyRefreshModeUI() {
     const isLive = state.refreshMode === "live";
     const el = document.getElementById("refreshModeToggle");
     const label = document.getElementById("refreshModeLabel");
@@ -807,175 +829,196 @@ function applyRefreshModeUI() {
     state.systemPollTimer = setInterval(() => {
       refreshSystemStrip();
     }, 750);
-// Watch preset changes (e.g. MIDI) and refresh UI when it changes
+    // Watch preset changes (e.g. MIDI) and refresh UI when it changes
     state.presetWatchTimer = setInterval(() => {
       checkPresetChangedLive();
     }, 300);
   }
-    async function refreshUI() {
-      if (state.isRefreshingUI) return;
-      state.isRefreshingUI = true;
-      try {
-        const { res, data } = await A.fetchState();
+  async function refreshUI() {
+    if (state.isRefreshingUI) return;
+    state.isRefreshingUI = true;
+    try {
+      const { res, data } = await A.fetchState();
 
-        elNow.textContent = data?.meta?.now || '(no time)';
-        elStatus.textContent = res.ok ? 'ok' : ('http ' + res.status);
+      elNow.textContent = data?.meta?.now || '(no time)';
+      elStatus.textContent = res.ok ? 'ok' : ('http ' + res.status);
 
-        const presetList = data?.presets?.error ? [] : P.parsePresets(data?.presets?.raw || '');
-        const pluginMetaMap = data?.dumpConfig?.error ? {} : P.parseDumpConfig(data?.dumpConfig?.raw || '');
-        const trees = data?.dumpConfig?.error ? {} : P.parseFileTrees(data?.dumpConfig?.raw || '');
-        const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
+      const presetList = data?.presets?.error ? [] : P.parsePresets(data?.presets?.raw || '');
+      const pluginMetaMap = data?.dumpConfig?.error ? {} : P.parseDumpConfig(data?.dumpConfig?.raw || '');
+      const trees = data?.dumpConfig?.error ? {} : P.parseFileTrees(data?.dumpConfig?.raw || '');
+      const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
 
-        const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
-        // ---- AVAILABLE PLUGINS FOR "LOAD" DROPDOWN ----
-        // Derive base plugin types from current params (stable & build-agnostic)
-        const availablePlugins = Array.from(
-          new Set(
-            Object.keys(program?.params || {}).map(p => p.replace(/_\d+$/, ''))
-          )
-        ).sort((a, b) => a.localeCompare(b));
-        // --- CORE fixed params (Input / Master) ---
-        // These fixed engine modules are not serialized in DumpProgram.
-        // Initialize once from DumpConfig defaults (or 0 dB fallback).
-        if (state.core.inputGain === null) {
-          const defIn = paramMetaMap?.Input?.Gain?.def;
-          state.core.inputGain = Number.isFinite(defIn) ? defIn : 0;
-        }
-        if (state.core.masterVolume === null) {
-          const defOut = paramMetaMap?.Master?.Volume?.def;
-          state.core.masterVolume = Number.isFinite(defOut) ? defOut : 0;
-        }
+      const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
 
-        setPresetDropdown(presetList, program.preset);
+      // ---- AVAILABLE PLUGINS FOR "+ Add plugin..." DROPDOWN ----
+      // Source of truth MUST be DumpConfig (PluginConfig ... IsUserSelectable ...)
+      // because DumpProgram only lists currently-instantiated plugins.
+      let availablePlugins = [];
 
-        const namCurrent = program?.params?.NAM?.Model ?? null;
-        const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
-        const namOpts = trees['NAM.Model'] || [];
-        const cabOpts = trees['Cabinet.Impulse'] || [];
-
-        elModelSelectors.innerHTML = '';
-        elModelSelectors.appendChild(
-          R.buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
-            await A.setFileParam('NAM', 'Model', v);
-            await refreshAfterFileParamChange('NAM', 'Model', v);
-          }, state)
-        );
-        elModelSelectors.appendChild(
-          R.buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
-            await A.setFileParam('Cabinet', 'Impulse', v);
-            await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
-          }, state)
-        );
-
-        renderCore(elCore, program, paramMetaMap);
-        // ---- ADD PLUGIN HANDLER (for lane dropdown) ----
-        const handleAddPlugin = async (chainName, baseType) => {
-          const items = (program?.chains?.[chainName] || []).slice();
-
-          // Push baseType; Stompbox will instantiate (e.g. Delay -> Delay_3)
-          items.push(baseType);
-
-          await A.setChain(chainName, items);
-          await refreshUI();
-        };
-        const buildPill = (pluginName, pluginParams, meta, baseType, ctx) => {
-          return R.buildPluginPill({
-            pluginName,
-            pluginParams,
-            bgColor: meta?.bg || null,
-            fgColor: meta?.fg || null,
-            paramMetaForThisPlugin: paramMetaMap?.[baseType] || paramMetaMap?.[pluginName] || {},
-            pickKeys: pickPluginKeys,
-            isBooleanParam,
-            fileTrees: trees,
-            onFileParamCommit: (pl, pa, val) => A.setFileParam(pl, pa, val),
-            WRITABLE_NUMERIC_PARAMS,
-            onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
-            onPluginToggleResync: () => refreshUI(),
-            // NEW: chain context so render.js can enable/disable arrows
-            chainName: ctx?.chainName,
-            chainIndex: ctx?.index,
-            chainLength: ctx?.chainItems?.length || 0,
-
-            onUnload: async ({ chainName, pluginName, index }) => {
-              // Get latest chain from the *current* program object you render from.
-              const items = (program?.chains?.[chainName] || []).slice();
-
-              // Remove by position first (safest), fallback by name
-              let next = items.slice();
-              if (Number.isFinite(index) && index >= 0 && index < next.length) {
-                next.splice(index, 1);
-              } else {
-                next = next.filter(x => x !== pluginName);
-              }
-
-              await A.setChain(chainName, next);
-
-              // Optional best-effort cleanup
-              try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
-
-              await refreshUI();
-            },
-
-            onMoveUp: async ({ chainName, from }) => {
-              const items = (program?.chains?.[chainName] || []).slice();
-              if (!Number.isFinite(from) || from <= 0 || from >= items.length) return;
-
-              const next = items.slice();
-              const t = next[from - 1];
-              next[from - 1] = next[from];
-              next[from] = t;
-
-              await A.setChain(chainName, next);
-              await refreshUI();
-            },
-
-            onMoveDown: async ({ chainName, from }) => {
-              const items = (program?.chains?.[chainName] || []).slice();
-              if (!Number.isFinite(from) || from < 0 || from >= items.length - 1) return;
-
-              const next = items.slice();
-              const t = next[from + 1];
-              next[from + 1] = next[from];
-              next[from] = t;
-
-              await A.setChain(chainName, next);
-              await refreshUI();
-            },
-
-          });
-        };
-
-        elLanes.innerHTML = '';
-        R.renderChainsFromProgram(
-          elLanes,
-          program,
-          pluginMetaMap,
-          paramMetaMap,
-          buildPill,
-          {
-            availablePlugins,
-            onAddPlugin: handleAddPlugin
-          }
-        );
-        R.renderSlotsFromDumpProgram(elSlots, program);
-
-        const dbg = [];
-        dbg.push('Durations:');
-        dbg.push('  dumpConfig: ' + (data?.dumpConfig?.duration || 'n/a'));
-        dbg.push('  program:    ' + (data?.program?.duration || 'n/a'));
-        dbg.push('  presets:    ' + (data?.presets?.duration || 'n/a'));
-        elDebug.innerHTML = '<pre>' + dbg.join('\n') + '</pre>';
-
-        return program;
-      } catch (e) {
-        elStatus.textContent = 'error';
-        elDebug.innerHTML = '<pre>' + String(e) + '</pre>';
-      } finally {
-        state.isRefreshingUI = false;
+      // 1) Preferred: DumpConfig → all user-selectable plugin *types*
+      if (pluginMetaMap && Object.keys(pluginMetaMap).length) {
+        availablePlugins = Object.entries(pluginMetaMap)
+          .filter(([name, meta]) => !!meta?.selectable)
+          .map(([name]) => name)
+          // Optional: keep UI tidy by hiding fixed engine modules if they ever appear selectable
+          .filter((name) => !['Input', 'Master'].includes(name))
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
       }
+
+      // 2) Fallback: derive from current program instances (better than nothing)
+      if (!availablePlugins.length) {
+        availablePlugins = Array.from(
+          new Set(Object.keys(program?.params || {}).map(p => p.replace(/_\d+$/, '')))
+        ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      }
+
+      // 3) Last-resort fallback: hardcoded minimal palette (keeps UI usable if DumpConfig fails)
+      if (!availablePlugins.length) {
+        availablePlugins = FALLBACK_PLUGIN_TYPES.slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      }
+
+      // --- CORE fixed params (Input / Master) ---
+      // These fixed engine modules are not serialized in DumpProgram.
+      // Initialize once from DumpConfig defaults (or 0 dB fallback).
+      if (state.core.inputGain === null) {
+        const defIn = paramMetaMap?.Input?.Gain?.def;
+        state.core.inputGain = Number.isFinite(defIn) ? defIn : 0;
+      }
+      if (state.core.masterVolume === null) {
+        const defOut = paramMetaMap?.Master?.Volume?.def;
+        state.core.masterVolume = Number.isFinite(defOut) ? defOut : 0;
+      }
+
+      setPresetDropdown(presetList, program.preset);
+
+      const namCurrent = program?.params?.NAM?.Model ?? null;
+      const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
+      const namOpts = trees['NAM.Model'] || [];
+      const cabOpts = trees['Cabinet.Impulse'] || [];
+
+      elModelSelectors.innerHTML = '';
+      elModelSelectors.appendChild(
+        R.buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
+          await A.setFileParam('NAM', 'Model', v);
+          await refreshAfterFileParamChange('NAM', 'Model', v);
+        }, state)
+      );
+      elModelSelectors.appendChild(
+        R.buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
+          await A.setFileParam('Cabinet', 'Impulse', v);
+          await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
+        }, state)
+      );
+
+      renderCore(elCore, program, paramMetaMap);
+      // ---- ADD PLUGIN HANDLER (for lane dropdown) ----
+      const handleAddPlugin = async (chainName, baseType) => {
+        const items = (program?.chains?.[chainName] || []).slice();
+
+        // Push baseType; Stompbox will instantiate (e.g. Delay -> Delay_3)
+        items.push(baseType);
+
+        await A.setChain(chainName, items);
+        await refreshUI();
+      };
+      const buildPill = (pluginName, pluginParams, meta, baseType, ctx) => {
+        return R.buildPluginPill({
+          pluginName,
+          pluginParams,
+          bgColor: meta?.bg || null,
+          fgColor: meta?.fg || null,
+          paramMetaForThisPlugin: paramMetaMap?.[baseType] || paramMetaMap?.[pluginName] || {},
+          pickKeys: pickPluginKeys,
+          isBooleanParam,
+          fileTrees: trees,
+          onFileParamCommit: (pl, pa, val) => A.setFileParam(pl, pa, val),
+          WRITABLE_NUMERIC_PARAMS,
+          onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
+          onPluginToggleResync: () => refreshUI(),
+          // NEW: chain context so render.js can enable/disable arrows
+          chainName: ctx?.chainName,
+          chainIndex: ctx?.index,
+          chainLength: ctx?.chainItems?.length || 0,
+
+          onUnload: async ({ chainName, pluginName, index }) => {
+            // Get latest chain from the *current* program object you render from.
+            const items = (program?.chains?.[chainName] || []).slice();
+
+            // Remove by position first (safest), fallback by name
+            let next = items.slice();
+            if (Number.isFinite(index) && index >= 0 && index < next.length) {
+              next.splice(index, 1);
+            } else {
+              next = next.filter(x => x !== pluginName);
+            }
+
+            await A.setChain(chainName, next);
+
+            // Optional best-effort cleanup
+            try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
+
+            await refreshUI();
+          },
+
+          onMoveUp: async ({ chainName, from }) => {
+            const items = (program?.chains?.[chainName] || []).slice();
+            if (!Number.isFinite(from) || from <= 0 || from >= items.length) return;
+
+            const next = items.slice();
+            const t = next[from - 1];
+            next[from - 1] = next[from];
+            next[from] = t;
+
+            await A.setChain(chainName, next);
+            await refreshUI();
+          },
+
+          onMoveDown: async ({ chainName, from }) => {
+            const items = (program?.chains?.[chainName] || []).slice();
+            if (!Number.isFinite(from) || from < 0 || from >= items.length - 1) return;
+
+            const next = items.slice();
+            const t = next[from + 1];
+            next[from + 1] = next[from];
+            next[from] = t;
+
+            await A.setChain(chainName, next);
+            await refreshUI();
+          },
+
+        });
+      };
+
+      elLanes.innerHTML = '';
+      R.renderChainsFromProgram(
+        elLanes,
+        program,
+        pluginMetaMap,
+        paramMetaMap,
+        buildPill,
+        {
+          availablePlugins,
+          onAddPlugin: handleAddPlugin
+        }
+      );
+      R.renderSlotsFromDumpProgram(elSlots, program);
+
+      const dbg = [];
+      dbg.push('Durations:');
+      dbg.push('  dumpConfig: ' + (data?.dumpConfig?.duration || 'n/a'));
+      dbg.push('  program:    ' + (data?.program?.duration || 'n/a'));
+      dbg.push('  presets:    ' + (data?.presets?.duration || 'n/a'));
+      elDebug.innerHTML = '<pre>' + dbg.join('\n') + '</pre>';
+
+      return program;
+    } catch (e) {
+      elStatus.textContent = 'error';
+      elDebug.innerHTML = '<pre>' + String(e) + '</pre>';
+    } finally {
+      state.isRefreshingUI = false;
     }
-// ---- wire LIVE/RESEARCH controls once ----
+  }
+  // ---- wire LIVE/RESEARCH controls once ----
   const refreshToggle = document.getElementById("refreshModeToggle");
   const manualBtn = document.getElementById("manualRefreshBtn");
 
@@ -999,4 +1042,4 @@ function applyRefreshModeUI() {
   if (state.refreshMode === "live") startLivePolling();
 
 })();
-  
+

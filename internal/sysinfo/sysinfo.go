@@ -585,6 +585,71 @@ func countXruns(ctx context.Context, unit string, lines int, xrunRegex string) (
 	return count, lastLine, nil
 }
 
+// compileRegexWithCommonRelaxations returns one or more regex variants.
+//
+// Motivation: some routing expectations are written too "port-index specific"
+// (e.g. system:capture_2) but in practice JACK graphs may use capture_1,
+// or different indices depending on the interface or patching.
+//
+// We keep the original regex first, then append relaxed variants when we detect
+// very common rigid patterns.
+func compileRegexWithCommonRelaxations(pattern string) ([]*regexp.Regexp, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil, errors.New("empty regex")
+	}
+
+	var variants []string
+	variants = append(variants, pattern)
+
+	// If user hardcoded a specific capture/playback port, add a relaxed variant
+	// that accepts any index.
+	//
+	// NOTE: this is intentionally conservative: we only expand exact substrings
+	// "system:capture_1/2" and "system:playback_1/2" because those are the common
+	// cases observed in NAMNESIS setups.
+	relax := func(s string) string {
+		// Avoid double-expanding if the user already uses a capture/playback class.
+		if strings.Contains(s, "system:capture_[") || strings.Contains(s, "system:playback_[") {
+			return s
+		}
+		s = strings.ReplaceAll(s, "system:capture_1", "system:capture_[0-9]+")
+		s = strings.ReplaceAll(s, "system:capture_2", "system:capture_[0-9]+")
+		s = strings.ReplaceAll(s, "system:playback_1", "system:playback_[0-9]+")
+		s = strings.ReplaceAll(s, "system:playback_2", "system:playback_[0-9]+")
+		return s
+	}
+
+	relaxed := relax(pattern)
+	if relaxed != pattern {
+		variants = append(variants, relaxed)
+	}
+
+	// Compile all unique variants (preserve order).
+	seen := map[string]bool{}
+	var out []*regexp.Regexp
+	for _, v := range variants {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		re, err := regexp.Compile(v)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+// isMidiExpectation is a small heuristic to prevent routing.ok from failing
+// when MIDI hardware is unplugged/off (common in "research" mode).
+// We still report missing items for diagnosis in routing.missing.
+func isMidiExpectation(id, fromRx, toRx string) bool {
+	blob := strings.ToLower(id + " " + fromRx + " " + toRx)
+	return strings.Contains(blob, "midi")
+}
+
 func collectRouting(ctx context.Context, jackLspCmd []string, env map[string]string, expect []struct {
 	ID        string `json:"id"`
 	FromRegex string `json:"from_regex"`
@@ -639,9 +704,10 @@ func collectRouting(ctx context.Context, jackLspCmd []string, env map[string]str
 
 	// Expectations are purely config-driven.
 	matched := make(map[string]bool)
+	matchedAudio := make(map[string]bool)
 	for _, ex := range expect {
-		fromRe, e1 := regexp.Compile(ex.FromRegex)
-		toRe, e2 := regexp.Compile(ex.ToRegex)
+		fromRes, e1 := compileRegexWithCommonRelaxations(ex.FromRegex)
+		toRes, e2 := compileRegexWithCommonRelaxations(ex.ToRegex)
 		if e1 != nil || e2 != nil {
 			if e1 != nil {
 				missing = append(missing, "routing expect regex error: "+ex.ID+": "+e1.Error())
@@ -651,18 +717,49 @@ func collectRouting(ctx context.Context, jackLspCmd []string, env map[string]str
 			}
 			continue
 		}
+
+		isMidi := isMidiExpectation(ex.ID, ex.FromRegex, ex.ToRegex)
+
 		for _, edge := range summary {
-			parts := strings.Split(edge, " -> ")
+			parts := strings.SplitN(edge, " -> ", 2)
 			if len(parts) != 2 {
 				continue
 			}
-			if fromRe.MatchString(parts[0]) && toRe.MatchString(parts[1]) {
-				matched[ex.ID] = true
-				break
+
+			fromOK := false
+			for _, fr := range fromRes {
+				if fr.MatchString(parts[0]) {
+					fromOK = true
+					break
+				}
 			}
+			if !fromOK {
+				continue
+			}
+
+			toOK := false
+			for _, tr := range toRes {
+				if tr.MatchString(parts[1]) {
+					toOK = true
+					break
+				}
+			}
+			if !toOK {
+				continue
+			}
+
+			matched[ex.ID] = true
+			if !isMidi {
+				matchedAudio[ex.ID] = true
+			}
+			break
 		}
 	}
 
+	// missing[] is for full diagnostics (includes MIDI expectations if configured),
+	// but ok is computed only from "audio/core" expectations to avoid false WARN
+	// when MIDI controllers are unplugged/off.
+	missingAudioCount := 0
 	for _, ex := range expect {
 		if ex.ID != "" && !matched[ex.ID] {
 			msg := ex.Message
@@ -670,10 +767,14 @@ func collectRouting(ctx context.Context, jackLspCmd []string, env map[string]str
 				msg = "missing: " + ex.ID
 			}
 			missing = append(missing, msg)
+
+			if !isMidiExpectation(ex.ID, ex.FromRegex, ex.ToRegex) {
+				missingAudioCount++
+			}
 		}
 	}
 
-	ok = (len(missing) == 0)
+	ok = (missingAudioCount == 0)
 	return ports, edges, summary, missing, ok, nil
 }
 
