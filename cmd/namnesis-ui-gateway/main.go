@@ -1,14 +1,14 @@
 package main
 
 import (
-    "fmt"
-    "log"
-    "net/http"
-    "time"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
 
-    "namnesis-ui-gateway/internal/config"
-    "namnesis-ui-gateway/internal/httpserver"
-    "namnesis-ui-gateway/internal/stompbox"
+	"namnesis-ui-gateway/internal/config"
+	"namnesis-ui-gateway/internal/httpserver"
+	"namnesis-ui-gateway/internal/stompbox"
 )
 
 func main() {
@@ -22,7 +22,6 @@ func main() {
 	sb.DialTimeout = cfg.DialTimeout
 	sb.ReadTimeout = cfg.ReadTimeout
 	sb.MaxBytes = int(cfg.MaxBytes)
-
 
 	r, err := httpserver.NewRouter(httpserver.RouterDeps{
 		Config: cfg,

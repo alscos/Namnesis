@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 )
+
 func normalizeCmd(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
 	if !strings.HasSuffix(cmd, "\r\n") {

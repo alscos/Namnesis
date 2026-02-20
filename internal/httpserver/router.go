@@ -36,10 +36,9 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	tplPath := filepath.Join("web", "templates", "*.html")
 	tpl, err := template.ParseGlob(tplPath)
 	if err != nil {
-	return nil, err
+		return nil, err
 	}
 	s.tpl = tpl
-
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -81,7 +80,6 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Post("/api/param/set", s.handleParamSet)
 	r.Post("/api/chains/{chain}/set", s.handleChainSet)
 	r.Post("/api/plugins/{plugin}/release", s.handlePluginRelease)
-
 
 	// HTML page
 	r.Get("/dumpconfig", s.handleDumpConfigPage)

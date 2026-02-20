@@ -7,8 +7,8 @@ import (
 
 type Program struct {
 	ActivePreset string
-	Chains       map[string][]string // ChainName -> ordered plugin instance names
-	Slots        map[string]string   // SlotName -> plugin instance name
+	Chains       map[string][]string          // ChainName -> ordered plugin instance names
+	Slots        map[string]string            // SlotName -> plugin instance name
 	Params       map[string]map[string]string // PluginName -> ParamName -> Value
 }
 
@@ -44,7 +44,6 @@ func ParseDumpProgram(raw string) (*Program, error) {
 				continue
 			}
 			p.ActivePreset = strings.Join(fields[1:], " ")
-
 
 		case "SetChain":
 			// SetChain <ChainName> <Plugin1> <Plugin2> ...
@@ -83,7 +82,6 @@ func ParseDumpProgram(raw string) (*Program, error) {
 				value = strings.Join(fields[3:], " ")
 			}
 
-
 			if _, ok := p.Params[pluginName]; !ok {
 				p.Params[pluginName] = make(map[string]string)
 			}
@@ -97,4 +95,3 @@ func ParseDumpProgram(raw string) (*Program, error) {
 
 	return p, nil
 }
-

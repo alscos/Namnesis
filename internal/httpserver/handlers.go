@@ -1,24 +1,23 @@
 package httpserver
 
 import (
-	"errors"
 	"encoding/json"
-	"net/http"
-	"time"
-	"strings"
+	"errors"
 	"github.com/go-chi/chi/v5"
+	"net/http"
 	"regexp"
+	"strings"
+	"time"
 
 	"namnesis-ui-gateway/internal/stompbox"
-	
 )
 
 type presetCurrentResponse struct {
 	CurrentPreset string `json:"currentPreset"`
 	Error         string `json:"error,omitempty"`
-	}
+}
 
-	func (s *Server) handlePresetCurrent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePresetCurrent(w http.ResponseWriter, r *http.Request) {
 	out, err := s.sb.DumpProgram()
 	if err != nil {
 		writeJSON(w, http.StatusOK, presetCurrentResponse{CurrentPreset: "", Error: err.Error()})
@@ -29,8 +28,8 @@ type presetCurrentResponse struct {
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "SetPreset ") {
-		preset = strings.TrimSpace(strings.TrimPrefix(line, "SetPreset "))
-		break
+			preset = strings.TrimSpace(strings.TrimPrefix(line, "SetPreset "))
+			break
 		}
 	}
 
@@ -154,7 +153,6 @@ func (s *Server) handlePluginEnabled(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 type stateResponse struct {
 	Meta struct {
 		Now string `json:"now"`
@@ -180,14 +178,13 @@ type stateResponse struct {
 }
 
 type presetLoadRequest struct {
-    Name string `json:"name"`
+	Name string `json:"name"`
 }
 type setFileParamRequest struct {
 	Plugin string `json:"plugin"`
 	Param  string `json:"param"`
 	Value  string `json:"value"`
 }
-
 
 func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 	var req setFileParamRequest
@@ -275,73 +272,72 @@ func fileTreeContains(ft *stompbox.FileTreeDef, value string) bool {
 	return false
 }
 
-
 func (s *Server) handlePresetLoad(w http.ResponseWriter, r *http.Request) {
-    var req presetLoadRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "bad json", http.StatusBadRequest)
-        return
-    }
-    if req.Name == "" || req.Name == "---" {
-        http.Error(w, "missing preset name", http.StatusBadRequest)
-        return
-    }
+	var req presetLoadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || req.Name == "---" {
+		http.Error(w, "missing preset name", http.StatusBadRequest)
+		return
+	}
 
-    // This method should send the TCP command: LoadPreset <name>
-    if err := s.sb.LoadPreset(req.Name); err != nil {
-        http.Error(w, "load preset error: "+err.Error(), http.StatusBadGateway)
-        return
-    }
+	// This method should send the TCP command: LoadPreset <name>
+	if err := s.sb.LoadPreset(req.Name); err != nil {
+		http.Error(w, "load preset error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 
-    w.Header().Set("Content-Type", "application/json; charset=utf-8")
-    _ = json.NewEncoder(w).Encode(map[string]any{
-        "ok":   true,
-        "name": req.Name,
-    })
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":   true,
+		"name": req.Name,
+	})
 }
+
 type savePresetRequest struct {
-    Name string `json:"name"`
+	Name string `json:"name"`
 }
 
 func (s *Server) handlePresetSave(w http.ResponseWriter, r *http.Request) {
-    var req savePresetRequest
-    _ = json.NewDecoder(r.Body).Decode(&req) // allow empty body
+	var req savePresetRequest
+	_ = json.NewDecoder(r.Body).Decode(&req) // allow empty body
 
-    name := strings.TrimSpace(req.Name)
+	name := strings.TrimSpace(req.Name)
 
-    // If no name provided, save "current preset" (from DumpProgram parse)
-    if name == "" {
-        raw, err := s.sb.DumpProgram()
-        if err != nil {
-            http.Error(w, "DumpProgram failed: "+err.Error(), http.StatusBadGateway)
-            return
-        }
+	// If no name provided, save "current preset" (from DumpProgram parse)
+	if name == "" {
+		raw, err := s.sb.DumpProgram()
+		if err != nil {
+			http.Error(w, "DumpProgram failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 
-        parsed, err := stompbox.ParseDumpProgram(raw)
-        if err != nil {
-            http.Error(w, "ParseDumpProgram failed: "+err.Error(), http.StatusInternalServerError)
-            return
-        }
+		parsed, err := stompbox.ParseDumpProgram(raw)
+		if err != nil {
+			http.Error(w, "ParseDumpProgram failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-        name = strings.TrimSpace(parsed.ActivePreset)
-        if name == "" {
-            http.Error(w, "cannot save: ActivePreset is empty", http.StatusBadRequest)
-            return
-        }
-    }
+		name = strings.TrimSpace(parsed.ActivePreset)
+		if name == "" {
+			http.Error(w, "cannot save: ActivePreset is empty", http.StatusBadRequest)
+			return
+		}
+	}
 
-    if err := s.sb.SavePreset(name); err != nil {
-        http.Error(w, "SavePreset failed: "+err.Error(), http.StatusBadGateway)
-        return
-    }
+	if err := s.sb.SavePreset(name); err != nil {
+		http.Error(w, "SavePreset failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 
-    w.Header().Set("Content-Type", "application/json; charset=utf-8")
-    _ = json.NewEncoder(w).Encode(map[string]any{
-        "ok":     true,
-        "preset": name,
-    })
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":     true,
+		"preset": name,
+	})
 }
-
 
 type presetNameRequest struct {
 	Name string `json:"name"`
@@ -418,7 +414,6 @@ func (s *Server) handlePresetDelete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 type loadPresetRequest struct {
 	Name string `json:"name"`
 }
@@ -454,8 +449,6 @@ func (s *Server) handleUIPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
-
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	var resp stateResponse
 	resp.Meta.Now = time.Now().Format(time.RFC3339)
@@ -490,7 +483,6 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		resp.Presets.Raw = out
 	}
 
-	
 	// Decide HTTP status
 	status := http.StatusOK
 	allFailed := resp.DumpConfig.Error != "" &&

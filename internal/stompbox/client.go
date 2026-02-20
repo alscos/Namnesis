@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 )
 
 type Client struct {
@@ -18,6 +18,7 @@ type Client struct {
 	ReadTimeout time.Duration
 	MaxBytes    int
 }
+
 // quoteIfNeeded quotes a token only when required (spaces/tabs/quotes).
 // This mirrors the behavior used in SetParam and matches Stompbox parsing with std::quoted.
 func quoteIfNeeded(s string) string {
@@ -40,31 +41,21 @@ func firstProtocolError(resp string) error {
 }
 
 func (c *Client) SetParam(plugin, param, value string) error {
-    v := value
+	plugin = strings.TrimSpace(plugin)
+	param = strings.TrimSpace(param)
+	if plugin == "" || param == "" {
+		return fmt.Errorf("missing plugin/param")
+	}
 
-    // Quote sólo si hace falta (espacios, tabs o comillas)
-    if strings.ContainsAny(v, " \t\"") {
-        v = strconv.Quote(v)
-    }
-
-    resp, err := c.SendCommand("SetParam " + plugin + " " + param + " " + v)
-    if err != nil {
-        return err
-    }
-
-    // Si Stompbox respondió "Error ..." pero luego "Ok", no lo ignores
-    scanner := bufio.NewScanner(strings.NewReader(resp))
-    for scanner.Scan() {
-        line := strings.TrimSpace(scanner.Text())
-        if strings.HasPrefix(line, "Error") {
-            return fmt.Errorf(line)
-        }
-    }
-    return nil
+	resp, err := c.SendCommand("SetParam " + plugin + " " + param + " " + quoteIfNeeded(value))
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
 }
 
 func (c *Client) DeletePreset(name string) error {
-n := quoteIfNeeded(name)
+	n := quoteIfNeeded(name)
 	resp, err := c.SendCommand("DeletePreset " + n)
 	if err != nil {
 		return err
@@ -81,9 +72,9 @@ func New(addr string) *Client {
 	}
 }
 func (c *Client) LoadPreset(name string) error {
-    // Whatever you already use for sending commands (WriteLine / Do / SendCommand)
-    // The TCP line should be: LoadPreset <presetname>
-n := quoteIfNeeded(name)
+	// Whatever you already use for sending commands (WriteLine / Do / SendCommand)
+	// The TCP line should be: LoadPreset <presetname>
+	n := quoteIfNeeded(name)
 	resp, err := c.SendCommand("LoadPreset " + n)
 	if err != nil {
 		return err
@@ -92,12 +83,13 @@ n := quoteIfNeeded(name)
 }
 func (c *Client) SavePreset(name string) error {
 	n := quoteIfNeeded(name)
-		resp, err := c.SendCommand("SavePreset " + n)
-		if err != nil {
-			return err
-		}
-		return firstProtocolError(resp)	
+	resp, err := c.SendCommand("SavePreset " + n)
+	if err != nil {
+		return err
+	}
+	return firstProtocolError(resp)
 }
+
 // SetChain updates a named signal chain to the provided ordered list.
 // Entries can be instance names (Delay_2) or base types (Delay).
 func (c *Client) SetChain(chain string, plugins []string) error {
@@ -190,10 +182,10 @@ type termState struct {
 	lastLine       string
 }
 
-
 // DumpConfig reads until:
-//   EndConfig
-//   Ok
+//
+//	EndConfig
+//	Ok
 func (c *Client) DumpConfig() (string, error) {
 	return c.doUntil("Dump Config\r\n", func(line string, st *termState) bool {
 		if line == "EndConfig" {
@@ -208,8 +200,9 @@ func (c *Client) DumpConfig() (string, error) {
 }
 
 // DumpProgram reads until:
-//   EndProgram
-//   Ok
+//
+//	EndProgram
+//	Ok
 func (c *Client) DumpProgram() (string, error) {
 	return c.doUntil("Dump Program\r\n", func(line string, st *termState) bool {
 		if line == "EndProgram" {
@@ -239,12 +232,11 @@ func (c *Client) SendCommand(cmd string) (string, error) {
 	})
 }
 
-
 // ListPresets reads until:
-//   Ok
+//
+//	Ok
 func (c *Client) ListPresets() (string, error) {
 	return c.doUntil("List Presets\r\n", func(line string, st *termState) bool {
 		return line == "Ok"
 	})
 }
-

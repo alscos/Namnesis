@@ -762,7 +762,7 @@
         midiState = "ok";
         midiText = "🎹✓";
       } else if ((s.midi?.alsa?.length || 0) > 0) {
-        // hay dispositivos MIDI, pero no están conectados a stompbox
+        // MIDI devices exist, but none are routed into stompbox:midi_in
         midiState = "warn";
         midiText = "🎹!";
       }

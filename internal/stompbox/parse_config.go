@@ -9,36 +9,34 @@ import (
 
 type DumpConfigParsed struct {
 	Plugins map[string]*PluginDef `json:"plugins"`
-	Order   []string             `json:"order,omitempty"` // optional stable order if you want
+	Order   []string              `json:"order,omitempty"` // optional stable order if you want
 }
 
 type PluginDef struct {
-	Name           string                    `json:"name"`
-	BackgroundColor string                  `json:"backgroundColor,omitempty"`
-	ForegroundColor string                  `json:"foregroundColor,omitempty"`
-	IsUserSelectable *bool                  `json:"isUserSelectable,omitempty"`
-	Description    string                   `json:"description,omitempty"`
-	Params         map[string]*ParamDef     `json:"params,omitempty"`
-	FileTrees      map[string]*FileTreeDef  `json:"fileTrees,omitempty"`
+	Name             string                  `json:"name"`
+	BackgroundColor  string                  `json:"backgroundColor,omitempty"`
+	ForegroundColor  string                  `json:"foregroundColor,omitempty"`
+	IsUserSelectable *bool                   `json:"isUserSelectable,omitempty"`
+	Description      string                  `json:"description,omitempty"`
+	Params           map[string]*ParamDef    `json:"params,omitempty"`
+	FileTrees        map[string]*FileTreeDef `json:"fileTrees,omitempty"`
 }
 
 type ParamDef struct {
-	Plugin      string `json:"plugin"`
-	Name        string `json:"name"`
-	Type        string `json:"type,omitempty"`
-	MinValue    *float64 `json:"minValue,omitempty"`
-	MaxValue    *float64 `json:"maxValue,omitempty"`
-	DefaultValue *float64 `json:"defaultValue,omitempty"`
-	RangePower  *float64 `json:"rangePower,omitempty"`
-	ValueFormat string `json:"valueFormat,omitempty"`
-	CanSyncToHostBPM *bool `json:"canSyncToHostBPM,omitempty"`
-	IsAdvanced  *bool `json:"isAdvanced,omitempty"`
-	IsOutput    *bool `json:"isOutput,omitempty"`
-	Description string `json:"description,omitempty"`
-	RawKV       map[string]string `json:"rawKV,omitempty"` // keeps unknown keys without losing info
+	Plugin           string            `json:"plugin"`
+	Name             string            `json:"name"`
+	Type             string            `json:"type,omitempty"`
+	MinValue         *float64          `json:"minValue,omitempty"`
+	MaxValue         *float64          `json:"maxValue,omitempty"`
+	DefaultValue     *float64          `json:"defaultValue,omitempty"`
+	RangePower       *float64          `json:"rangePower,omitempty"`
+	ValueFormat      string            `json:"valueFormat,omitempty"`
+	CanSyncToHostBPM *bool             `json:"canSyncToHostBPM,omitempty"`
+	IsAdvanced       *bool             `json:"isAdvanced,omitempty"`
+	IsOutput         *bool             `json:"isOutput,omitempty"`
+	Description      string            `json:"description,omitempty"`
+	RawKV            map[string]string `json:"rawKV,omitempty"` // keeps unknown keys without losing info
 }
-
-
 
 func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 	out := &DumpConfigParsed{
@@ -145,7 +143,6 @@ func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 				Options:  fileOptionsFromItems(items),
 			}
 			p.FileTrees[param] = tree
-
 
 		case "EndConfig":
 			// end of plugin block (we keep currentPlugin as last plugin for recovery)

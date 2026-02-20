@@ -39,7 +39,7 @@ go build ./cmd/namnesis-ui-gateway
 ```
 ##License
 
-The repository is currently private.
-It is intended to be released publicly under the GPL once a minimal feature set is completed.
+License is being finalized for the public release (GPL/MPL under consideration).
+Sample Stompbox dumps used during development live in `docs/samples/`.
 
 
