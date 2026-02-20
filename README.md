@@ -1,3 +1,5 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+
 <p align="left">
   <img src="web/static/img/logo.svg" alt="Namnesis UI" width="140"/>
 </p>
@@ -124,6 +126,25 @@ evolving.
 
 ------------------------------------------------------------------------
 
+## TODO
+
+Explore integration with Tone3000 as an optional discovery layer
+
+Browse and preview new NAM models
+
+Browse and preview IR files
+
+Download and test assets on-the-fly
+
+Keep local asset management explicit and user-controlled
+
+This would remain an optional feature and would not alter the core philosophy of the gateway:
+explicit control, local execution, and deterministic behavior.
+
+------------------------------------------------------------------------
+
 ## License
 
-To be finalized for public release.
+This project is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later).
+
+See the `LICENSE` file for details.
