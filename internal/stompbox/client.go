@@ -34,7 +34,7 @@ func firstProtocolError(resp string) error {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "Error") {
-			return fmt.Errorf(line)
+			return errors.New(line)
 		}
 	}
 	return nil
