@@ -662,3 +662,28 @@ button:disabled {
 }
 .pill-dark .pill-param-input { color: #fff; }
 .pill-light .pill-param-input { color: #000; }
+.pill-param-input {
+  border: 1px solid currentColor;
+  background: transparent;
+  outline: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font: inherit;
+}
+
+/* Dark pills (bright text) */
+.pill-dark .pill-param-input {
+  color: #fff;
+  border-color: rgba(255,255,255,0.6);
+}
+
+/* Light pills (dark text) */
+.pill-light .pill-param-input {
+  color: #111;
+  border-color: rgba(0,0,0,0.4);
+}
+
+/* Focus state */
+.pill-param-input:focus {
+  border-color: currentColor;
+}

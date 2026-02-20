@@ -221,83 +221,85 @@
     };
 
     R.buildNumericSliderRow = function buildNumericSliderRow(pluginName, paramName, currentValue, meta, onCommit, uiState) {
-        const row = document.createElement('div');
-        row.className = 'kv';
+  const row = document.createElement('div');
+  row.className = 'kv';
 
-        const kk = document.createElement('div');
-        kk.className = 'k';
-        kk.textContent = paramName + ':';
+  const kk = document.createElement('div');
+  kk.className = 'k';
+  kk.textContent = paramName + ':';
 
-        const vv = document.createElement('div');
-        vv.className = 'v';
-        // If uiState provided, render an inline numeric editor instead of plain text.
-        // This keeps slider + editable numeric field.
-        let editor = null;
-        if (uiState && typeof uiState === 'object') {
-            // Use meta for step/min/max; if missing, your buildInlineNumericEditor falls back.
-            editor = buildInlineNumericEditor({
-                plugin: pluginName,
-                param: paramName,
-                value: Number(currentValue),
-                meta,
-                onCommit: async (val) => {
-                    try { await onCommit(val); }
-                    catch (err) { console.error(err); alert(`SetParam failed: ${err.message || err}`); }
-                },
-                uiState,
-            });
-            vv.appendChild(editor.el);
-        } else {
-            // If no editor, still show extra decimals for “fine feel” params
-            const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
-            const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
-            vv.textContent = Number(currentValue).toFixed(dec);
-        }
+  const vv = document.createElement('div');
+  vv.className = 'v';
 
-        const slider = document.createElement('input');
-        slider.type = 'range';
+  // --- slider FIRST (so editor can reference it) ---
+  const slider = document.createElement('input');
+  slider.type = 'range';
 
-        const min = Number.isFinite(meta?.min) ? meta.min : 0;
-        const max = Number.isFinite(meta?.max) ? meta.max : 1;
-        const step = Number.isFinite(meta?.step) ? meta.step : 0.01;
+  const min = Number.isFinite(meta?.min) ? meta.min : 0;
+  const max = Number.isFinite(meta?.max) ? meta.max : 1;
+  const step = Number.isFinite(meta?.step) ? meta.step : 0.01;
 
-        slider.min = String(min);
-        slider.max = String(max);
-        slider.step = String(step);
-        slider.value = String(Number(currentValue));
+  slider.min = String(min);
+  slider.max = String(max);
+  slider.step = String(step);
+  slider.value = String(Number(currentValue));
 
-        slider.style.gridColumn = '1 / -1';
-        slider.style.width = '100%';
-        slider.style.marginTop = '4px';
+  slider.style.gridColumn = '1 / -1';
+  slider.style.width = '100%';
+  slider.style.marginTop = '4px';
 
-        slider.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            if (editor && editor.el) {
-                // While user is editing the input, don't overwrite their typing.
-                const key = `${pluginName}::${paramName}`;
-                const locked = uiState?.editing?.has?.(key);
-                const hasFocus = (document.activeElement === editor.el);
-                if (!locked && !hasFocus) {
-                    editor.el.value = editor.fmt ? editor.fmt(val) : String(val);
-                }
-            } else {
-                const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
-                const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
-                vv.textContent = val.toFixed(dec);
-            }
-        });
+  // --- editor AFTER slider ---
+  let editor = null;
+  if (uiState && typeof uiState === 'object') {
+    editor = buildInlineNumericEditor({
+      plugin: pluginName,
+      param: paramName,
+      value: Number(currentValue),
+      meta,
+      onNudge: (val) => {
+        slider.value = String(val);
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      onCommit: async (val) => {
+        try { await onCommit(val); }
+        catch (err) { console.error(err); alert(`SetParam failed: ${err.message || err}`); }
+      },
+      uiState,
+    });
+    vv.appendChild(editor.el);
+  } else {
+    const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
+    const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
+    vv.textContent = Number(currentValue).toFixed(dec);
+  }
 
-        slider.addEventListener('change', async (e) => {
-            const val = parseFloat(e.target.value);
-            try { await onCommit(val); }
-            catch (err) { console.error(err); alert(`SetParam failed: ${err.message || err}`); }
-        });
+  slider.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    if (editor && editor.el) {
+      const key = `${pluginName}::${paramName}`;
+      const locked = uiState?.editing?.has?.(key);
+      const hasFocus = (document.activeElement === editor.el);
+      if (!locked && !hasFocus) {
+        editor.el.value = editor.fmt ? editor.fmt(val) : String(val);
+      }
+    } else {
+      const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
+      const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
+      vv.textContent = val.toFixed(dec);
+    }
+  });
 
-        row.appendChild(kk);
-        row.appendChild(vv);
-        row.appendChild(slider);
-        return row;
-    };
+  slider.addEventListener('change', async (e) => {
+    const val = parseFloat(e.target.value);
+    try { await onCommit(val); }
+    catch (err) { console.error(err); alert(`SetParam failed: ${err.message || err}`); }
+  });
+
+  row.appendChild(kk);
+  row.appendChild(vv);
+  row.appendChild(slider);
+  return row;
+};
 
     R.buildBooleanToggleRow = function buildBooleanToggleRow(pluginName, paramName, n, onCommit) {
         const row = document.createElement('div');
@@ -389,7 +391,7 @@
             }
         });
     };
-    function buildInlineNumericEditor({ plugin, param, value, meta, uiState, onCommit }) {
+    function buildInlineNumericEditor({ plugin, param, value, meta, uiState, onCommit, onNudge }) {
         const key = `${plugin}::${param}`;
         const { decimalsFromStep, parseUserNumber } = uiState.numericEdit || {};
 
@@ -402,7 +404,7 @@
 
         // IMPORTANT: Do not quantize “fine-feel” params on commit,
         // or ArrowUp/Down will look like it “does nothing” until x10.
-        const doSnap = true;
+        const doSnap = false;
 
         const clampBounds = (x) => {
             let y = x;
@@ -472,6 +474,7 @@
                 // For keyboard nudges, don't snap back to coarse step0; just clamp bounds.
                 const next = clampBounds(rawNext);
                 input.value = fmt(next);
+                if (typeof onNudge === 'function') onNudge(next);
                 await onCommit(next);
             }
         });
