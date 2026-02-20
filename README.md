@@ -4,42 +4,111 @@
 
 # Namnesis UI Gateway
 
-Namnesis is a lightweight **web UI and HTTP gateway** for controlling **Stompbox** (by Mike Oliphant) via its TCP control protocol.
+Thin HTTP → TCP bridge and Web UI for controlling Stompbox (Neural Amp
+Modeler host).
 
-This project focuses exclusively on **control and observability**.  
-It does **not** perform any audio or DSP processing.
+This project provides:
 
-## Scope
+-   A stateless HTTP API
+-   A browser-based UI
+-   A strict implementation of the Stompbox TCP control protocol
+-   Optional system observability (JACK, routing, MIDI, XRUNs)
 
-- Web-based UI for live control
-- Go-based gateway translating HTTP ↔ Stompbox TCP commands
-- Designed for low-latency, reliable operation in performance contexts
+It does **not** include:
 
-## What this is not
+-   Stompbox
+-   Neural Amp Modeler
+-   Audio DSP
+-   Plugin implementations
 
-- This repository does **not** include Stompbox
-- This repository does **not** replace or modify Stompbox
-- This project is **not affiliated** with the Stompbox project
+------------------------------------------------------------------------
 
-Stompbox remains the DSP and audio core. Namnesis acts as a companion UI layer.
+## Philosophy
 
-## Current status
+The gateway is intentionally:
 
-- State readout via Stompbox dump commands
-- Preset loading supported
-- Write-back functionality is partial and evolving
+-   Thin
+-   Explicit
+-   Boring
+-   Protocol-faithful
 
-The project is under active development and the API/UI should be considered unstable.
+It does not reinterpret Stompbox. It does not maintain hidden state. It
+forwards commands and parses responses.
 
-## Build
+------------------------------------------------------------------------
 
-```bash
-go build ./cmd/namnesis-ui-gateway
+## Architecture
 
-```
-##License
+Browser\
+→ HTTP (JSON)\
+→ namnesis-ui-gateway\
+→ TCP (CRLF protocol)\
+→ Stompbox
 
-License is being finalized for the public release (GPL/MPL under consideration).
-Sample Stompbox dumps used during development live in `docs/samples/`.
+Multi-line dumps (`DumpConfig`, `DumpProgram`) are parsed server-side.
 
+All write operations are followed by explicit state refresh.
 
+------------------------------------------------------------------------
+
+## Features
+
+-   Load / Save / Delete presets
+-   Modify parameters
+-   Reorder plugins
+-   Load new plugins
+-   Select NAM models and cabinets
+-   Select ConvoReverb IRs
+-   Live and Research modes (control whether UI auto-refresh reacts to
+    external MIDI events; prevents accidental preset changes during
+    sound design)
+-   Optional `/api/system` observability
+
+------------------------------------------------------------------------
+
+## Quick Start
+
+Build:
+
+    go build ./cmd/namnesis-ui-gateway
+
+Run:
+
+    ./namnesis-ui-gateway -stompbox 127.0.0.1:5555 -listen :3000
+
+Open:
+
+    http://localhost:3000
+
+------------------------------------------------------------------------
+
+## Documentation
+
+-   docs/INSTALL.md
+-   docs/CONFIG.md
+-   docs/PROTOCOL.md
+
+------------------------------------------------------------------------
+
+## Security
+
+This gateway:
+
+-   Has no authentication
+-   Has no TLS
+-   Assumes trusted LAN or VPN
+
+Do not expose directly to the public internet.
+
+------------------------------------------------------------------------
+
+## Status
+
+Actively used in my own hardware system. Feature set is stable but
+evolving.
+
+------------------------------------------------------------------------
+
+## License
+
+To be finalized for public release.
