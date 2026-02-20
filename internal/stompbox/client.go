@@ -72,8 +72,6 @@ func New(addr string) *Client {
 	}
 }
 func (c *Client) LoadPreset(name string) error {
-	// Whatever you already use for sending commands (WriteLine / Do / SendCommand)
-	// The TCP line should be: LoadPreset <presetname>
 	n := quoteIfNeeded(name)
 	resp, err := c.SendCommand("LoadPreset " + n)
 	if err != nil {
