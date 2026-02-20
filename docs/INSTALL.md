@@ -62,6 +62,31 @@ Then:
 
 ------------------------------------------------------------------------
 
+---
+
+## Development Helper: refresh_ui_Build
+
+Namnesis includes a convenience script used in the Namnesis hardware system:
+
+    ./refresh_ui_Build
+
+This script typically:
+
+1. Builds Tailwind CSS assets
+2. Builds the Go binary
+3. Installs the binary to the target location
+4. Restarts the systemd service
+
+It is not required to run the gateway.
+
+You can always build and run manually:
+
+    go build ./cmd/namnesis-ui-gateway
+    ./namnesis-ui-gateway -stompbox 127.0.0.1:5555 -listen :3000
+
+The script is provided for convenience in a specific deployment environment.
+
+
 ## Troubleshooting
 
 If the UI loads but shows no state:
