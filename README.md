@@ -2,7 +2,7 @@
   <img src="web/static/img/logo.svg" alt="Namnesis UI" width="140"/>
 </p>
 
-# About Namnesis
+# About Namnesis UI Gateway
 
 Namnesis UI Gateway is built on top of Stompbox, the open-source Neural Amp Modeler host created by Mike Oliphant.
 
@@ -21,7 +21,6 @@ It acts as a thin HTTP → TCP bridge and Web UI layer for interacting with it.
 
 Full credit for the audio engine, DSP architecture, and NAM integration belongs to Mike Oliphant and the Stompbox project.
 
-# Namnesis UI Gateway
 
 This project provides:
 
