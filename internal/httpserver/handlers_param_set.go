@@ -3,6 +3,7 @@ package httpserver
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,7 +18,9 @@ type paramSetRequest struct {
 
 func (s *Server) handleParamSet(w http.ResponseWriter, r *http.Request) {
 	var req paramSetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
 		return
 	}
@@ -48,7 +51,7 @@ func (s *Server) handleParamSet(w http.ResponseWriter, r *http.Request) {
 		"ok":     true,
 		"plugin": req.Plugin,
 		"param":  req.Param,
-		"value":  req.Value,
+		"value":  val, // final token sent to Stompbox
 	})
 }
 
@@ -64,13 +67,39 @@ func toStompboxValue(v interface{}) (string, error) {
 		}
 		return "0", nil
 
+	case json.Number:
+		// Prefer integer if it parses cleanly
+		if i64, err := t.Int64(); err == nil {
+			return strconv.FormatInt(i64, 10), nil
+		}
+		f64, err := t.Float64()
+		if err != nil {
+			return "", fmt.Errorf("invalid number")
+		}
+		if math.IsNaN(f64) || math.IsInf(f64, 0) {
+			return "", fmt.Errorf("invalid number (nan/inf)")
+		}
+		return strconv.FormatFloat(f64, 'f', -1, 64), nil
+
 	case float64:
+		// Fallback (in case some caller bypasses UseNumber)
+		if math.IsNaN(t) || math.IsInf(t, 0) {
+			return "", fmt.Errorf("invalid number (nan/inf)")
+		}
 		return strconv.FormatFloat(t, 'f', -1, 64), nil
 
 	case string:
 		s := strings.TrimSpace(t)
 		if s == "" {
 			return "", fmt.Errorf("empty string")
+		}
+		// Allow numeric strings (optional: accept comma decimal)
+		ns := strings.ReplaceAll(s, ",", ".")
+		if f, err := strconv.ParseFloat(ns, 64); err == nil {
+			if math.IsNaN(f) || math.IsInf(f, 0) {
+				return "", fmt.Errorf("invalid number (nan/inf)")
+			}
+			return strconv.FormatFloat(f, 'f', -1, 64), nil
 		}
 		// Quote if it has spaces/tabs/etc. (safe for enum stems / IR names)
 		if strings.IndexFunc(s, unicode.IsSpace) >= 0 {

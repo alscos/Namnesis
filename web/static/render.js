@@ -4,6 +4,7 @@
     const U = () => window.NAMNESIS.util;
     const A = () => window.NAMNESIS.api;
 
+
     // Parse a number even if the string includes units (e.g. "0 dB", "-3.5", "12.0ms").
     // Returns NaN if it doesn't start with a numeric token.
     function toNumberLoose(v) {
@@ -20,6 +21,13 @@
         d.textContent = text;
         return d;
     };
+
+    function computeDecimalsForParam(step, decimalsFromStep) {
+        const s = Number(step);
+        const fromStep = decimalsFromStep ? decimalsFromStep(s) : 3;
+        // Yo dejaría mínimo 2 o 3; si quieres “menos ruido visual”, pon 2.
+        return Math.max(Number.isFinite(fromStep) ? fromStep : 3, 2);
+    }
 
     R.buildDropdown = function buildDropdown(label, options, selectedValue, onChange, state) {
         const wrap = document.createElement('div');
@@ -139,9 +147,61 @@
             elLanes.appendChild(lane);
         }
     };
+    function parseHexColor(s) {
+        // #rgb or #rrggbb
+        const h = s.replace('#', '').trim();
+        if (h.length === 3) {
+            const r = parseInt(h[0] + h[0], 16);
+            const g = parseInt(h[1] + h[1], 16);
+            const b = parseInt(h[2] + h[2], 16);
+            return { r, g, b, a: 1 };
+        }
+        if (h.length === 6) {
+            const r = parseInt(h.slice(0, 2), 16);
+            const g = parseInt(h.slice(2, 4), 16);
+            const b = parseInt(h.slice(4, 6), 16);
+            return { r, g, b, a: 1 };
+        }
+        return null;
+    }
 
+    function parseRgbColor(s) {
+        // rgb(r,g,b) or rgba(r,g,b,a)
+        const m = s.match(/rgba?\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([0-9.]+)\s*)?\)/i);
+        if (!m) return null;
+        const r = Number(m[1]), g = Number(m[2]), b = Number(m[3]);
+        const a = (m[4] !== undefined) ? Number(m[4]) : 1;
+        if (![r, g, b, a].every(Number.isFinite)) return null;
+        return { r, g, b, a };
+    }
 
+    function relLuminance({ r, g, b }) {
+        // sRGB -> linear
+        const toLin = (c) => {
+            c = c / 255;
+            return (c <= 0.04045) ? (c / 12.92) : Math.pow((c + 0.055) / 1.055, 2.4);
+        };
+        const R = toLin(r), G = toLin(g), B = toLin(b);
+        return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    }
 
+    function isDarkBackground(bg) {
+        if (!bg) return false;
+        const s = String(bg).trim().toLowerCase();
+
+        // If it's a named color we only special-case "black"
+        if (s === 'black') return true;
+
+        let c = null;
+        if (s.startsWith('#')) c = parseHexColor(s);
+        else if (s.startsWith('rgb')) c = parseRgbColor(s);
+
+        if (!c) return false;
+
+        // If alpha < 1, assume it's on dark UI anyway; treat as dark if color itself is dark.
+        const L = relLuminance(c);
+        return L < 0.35; // threshold: tweak if needed (0.30–0.45 typical)
+    }
 
     R.buildReadOnlyRow = function buildReadOnlyRow(paramName, raw) {
         const row = document.createElement('div');
@@ -160,7 +220,7 @@
         return row;
     };
 
-    R.buildNumericSliderRow = function buildNumericSliderRow(pluginName, paramName, currentValue, meta, onCommit) {
+    R.buildNumericSliderRow = function buildNumericSliderRow(pluginName, paramName, currentValue, meta, onCommit, uiState) {
         const row = document.createElement('div');
         row.className = 'kv';
 
@@ -170,7 +230,29 @@
 
         const vv = document.createElement('div');
         vv.className = 'v';
-        vv.textContent = Number(currentValue).toFixed(3);
+        // If uiState provided, render an inline numeric editor instead of plain text.
+        // This keeps slider + editable numeric field.
+        let editor = null;
+        if (uiState && typeof uiState === 'object') {
+            // Use meta for step/min/max; if missing, your buildInlineNumericEditor falls back.
+            editor = buildInlineNumericEditor({
+                plugin: pluginName,
+                param: paramName,
+                value: Number(currentValue),
+                meta,
+                onCommit: async (val) => {
+                    try { await onCommit(val); }
+                    catch (err) { console.error(err); alert(`SetParam failed: ${err.message || err}`); }
+                },
+                uiState,
+            });
+            vv.appendChild(editor.el);
+        } else {
+            // If no editor, still show extra decimals for “fine feel” params
+            const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
+            const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
+            vv.textContent = Number(currentValue).toFixed(dec);
+        }
 
         const slider = document.createElement('input');
         slider.type = 'range';
@@ -190,7 +272,19 @@
 
         slider.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
-            vv.textContent = val.toFixed(3);
+            if (editor && editor.el) {
+                // While user is editing the input, don't overwrite their typing.
+                const key = `${pluginName}::${paramName}`;
+                const locked = uiState?.editing?.has?.(key);
+                const hasFocus = (document.activeElement === editor.el);
+                if (!locked && !hasFocus) {
+                    editor.el.value = editor.fmt ? editor.fmt(val) : String(val);
+                }
+            } else {
+                const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
+                const dec = computeDecimalsForParam(step0, uiState?.numericEdit?.decimalsFromStep);
+                vv.textContent = val.toFixed(dec);
+            }
         });
 
         slider.addEventListener('change', async (e) => {
@@ -295,6 +389,95 @@
             }
         });
     };
+    function buildInlineNumericEditor({ plugin, param, value, meta, uiState, onCommit }) {
+        const key = `${plugin}::${param}`;
+        const { decimalsFromStep, parseUserNumber } = uiState.numericEdit || {};
+
+        const min = Number.isFinite(meta?.min) ? meta.min : undefined;
+        const max = Number.isFinite(meta?.max) ? meta.max : undefined;
+        const step0 = Number.isFinite(meta?.step) ? meta.step : 0.1;
+
+        // Decimals: based on step, but show extra for fine-feel params
+        const dec = computeDecimalsForParam(step0, decimalsFromStep);
+
+        // IMPORTANT: Do not quantize “fine-feel” params on commit,
+        // or ArrowUp/Down will look like it “does nothing” until x10.
+        const doSnap = true;
+
+        const clampBounds = (x) => {
+            let y = x;
+            if (Number.isFinite(min)) y = Math.max(min, y);
+            if (Number.isFinite(max)) y = Math.min(max, y);
+            return y;
+        };
+
+        // Optional: snap to step0 exactly (avoid global quantization)
+        const snapToStep = (x) => {
+            const s = Number(step0);
+            if (!Number.isFinite(s) || s <= 0) return x;
+            return Math.round(x / s) * s;
+        };
+
+        const fmt = (n) => {
+            const nn = Number(n);
+            if (!Number.isFinite(nn)) return String(n ?? '');
+            return nn.toFixed(dec);
+        };
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.inputMode = 'decimal';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.className = 'pill-param-input'; // ponle CSS acorde (abajo te digo)
+
+        input.value = fmt(value);
+
+        const commit = async () => {
+            const raw = input.value;
+            const n = parseUserNumber ? parseUserNumber(raw) : Number(raw);
+            if (!Number.isFinite(n)) {
+                input.value = fmt(value);
+                return;
+            }
+            const nn0 = doSnap ? snapToStep(n) : n;
+            const nn = clampBounds(nn0);
+            input.value = fmt(nn);
+            await onCommit(nn);
+        };
+
+        input.addEventListener('focus', () => uiState.editing.add(key));
+        input.addEventListener('blur', async () => {
+            try { await commit(); } finally { uiState.editing.delete(key); }
+        });
+
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); await commit(); input.blur(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); input.value = fmt(value); input.blur(); return; }
+
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                const cur = parseUserNumber ? parseUserNumber(input.value) : Number(input.value);
+                const base = Number.isFinite(cur) ? cur : (Number.isFinite(value) ? value : 0);
+
+               // Keyboard nudge step (fixed): 0.10 per keystroke
+                // Modifiers:
+                //  - Shift: x10 (1.0)
+                //  - Alt/Ctrl: /10 (0.01)
+                let s = 0.10;
+                if (e.shiftKey) s *= 10;
+                if (e.altKey || e.ctrlKey) s /= 10;
+
+                const rawNext = base + (e.key === 'ArrowUp' ? s : -s);
+                // For keyboard nudges, don't snap back to coarse step0; just clamp bounds.
+                const next = clampBounds(rawNext);
+                input.value = fmt(next);
+                await onCommit(next);
+            }
+        });
+
+        return { el: input, key, fmt };
+    }
     R.buildPluginPill = function buildPluginPill(opts) {
         const {
             pluginName, pluginParams, bgColor, fgColor,
@@ -305,7 +488,7 @@
             WRITABLE_NUMERIC_PARAMS,
             onParamCommit,
             onPluginToggleResync,
-
+            uiState,
             // NEW: chain context (provided by renderChainsFromProgram via buildPill wrapper)
             chainName,
             chainIndex,
@@ -320,7 +503,18 @@
         const el = document.createElement('div');
         el.className = 'pill';
         if (bgColor) el.style.background = bgColor;
+
+        // Apply dark/light class for param input contrast
+        if (isDarkBackground(bgColor)) {
+            el.classList.add('pill-dark');
+        }
+        // Contrast class for editable numeric input (and optionally other text)
+        const dark = isDarkBackground(bgColor);
+        el.classList.toggle('pill-dark', dark);
+        el.classList.toggle('pill-light', !dark);
+
         if (fgColor) el.style.color = fgColor;
+
 
         const enabledRaw = pluginParams?.Enabled;
         const isOn = String(enabledRaw) === '1';
@@ -439,15 +633,15 @@
                 lname === 'volume' ||
                 lname === 'threshold';
 
-            
+
 
             // Note: meta is declared as const above; we create a new reference for downstream logic.
             const meta2 = (!meta || !Number.isFinite(meta.min) || !Number.isFinite(meta.max))
                 ? (
                     (lname === 'volume' || lname === 'vol' || lname === 'gain')
-                      ? { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' }
-                      : (isLevelish ? { min: -24, max: 24, step: 0.1, def: 0, unit: 'dB' } : meta)
-                  )
+                        ? { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' }
+                        : (isLevelish ? { min: -24, max: 24, step: 0.1, def: 0, unit: 'dB' } : meta)
+                )
                 : meta;
             // --- 2.5) HARDEN: "Level" plugin semantics
             // Stompbox "Level" plugin exposes:
@@ -462,10 +656,10 @@
                 if (lname === 'volume') {
                     const v = Number.isFinite(n) ? n : 0;
                     const m = (meta2 && Number.isFinite(meta2.min) && Number.isFinite(meta2.max))
-                      ? meta2
-                      : { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' };
+                        ? meta2
+                        : { min: -40, max: 40, step: 0.1, def: 0, unit: 'dB' };
                     body.appendChild(
-                        R.buildNumericSliderRow(pluginName, k, v, m, (val) => onParamCommit(pluginName, k, val))
+                        R.buildNumericSliderRow(pluginName, k, v, m, (val) => onParamCommit(pluginName, k, val), uiState)
                     );
                     continue;
                 }
@@ -542,7 +736,7 @@
                 Number.isFinite(meta2.max);
 
             if (canSlider) {
-                body.appendChild(R.buildNumericSliderRow(pluginName, k, n, meta2, (val) => onParamCommit(pluginName, k, val)));
+                body.appendChild(R.buildNumericSliderRow(pluginName, k, n, meta2, (val) => onParamCommit(pluginName, k, val), uiState));
                 continue;
             }
 

@@ -26,6 +26,9 @@
     lastPresetSeen: null, // used later for midi-triggered preset sync
     isRefreshingUI: false,
     isCheckingPreset: false,
+    // --- PARAM EDIT LOCK (prevents LIVE refresh from overwriting input) ---
+    // keys: `${plugin}::${param}`
+    editing: new Set(),
 
     core: {
       inputGain: null,
@@ -66,6 +69,29 @@
     btn.disabled = true;
     btn.classList.add("opacity-50", "cursor-not-allowed");
   }
+  // ---- Numeric edit helpers (shared with renderer via state) ----
+  function clamp(n, min, max) {
+    if (Number.isFinite(min)) n = Math.max(min, n);
+    if (Number.isFinite(max)) n = Math.min(max, n);
+    return n;
+  }
+
+  function decimalsFromStep(step) {
+    if (!Number.isFinite(step) || step <= 0) return 3;
+    const s = String(step);
+    const dot = s.indexOf('.');
+    return dot >= 0 ? (s.length - dot - 1) : 0;
+  }
+
+  function parseUserNumber(str) {
+    const t = String(str).trim().replace(',', '.');
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Attach helpers so render.js can use them without re-implementing
+  state.numericEdit = { clamp, decimalsFromStep, parseUserNumber };
+
 
   // Prefer the ALSA "CARD=" that JACK is actually using (stable across hotplug).
   function getJackCardShortname(jackDevice) {
@@ -938,6 +964,8 @@
           WRITABLE_NUMERIC_PARAMS,
           onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
           onPluginToggleResync: () => refreshUI(),
+          // NEW: editing lock + helpers for inline numeric editor
+          uiState: state,
           // NEW: chain context so render.js can enable/disable arrows
           chainName: ctx?.chainName,
           chainIndex: ctx?.index,

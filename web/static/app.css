@@ -644,3 +644,21 @@ button:disabled {
 .pill-x   { top: 10px; right: 10px; }
 .pill-up  { top: 10px; left: 10px; }
 .pill-down{ top: 36px; left: 10px; } /* stack under ↑ */
+
+.pill-param-input{
+  width: 6ch;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  padding: 2px 6px;
+  font-family: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  color: rgba(229,231,235,1);
+}
+.pill-param-input:focus{
+  outline: none;
+  border-color: rgba(99,102,241,.9);
+  box-shadow: 0 0 0 2px rgba(99,102,241,.25);
+}
+.pill-dark .pill-param-input { color: #fff; }
+.pill-light .pill-param-input { color: #000; }
