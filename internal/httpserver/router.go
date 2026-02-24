@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/alscos/Namnesis/internal/config"
-	"github.com/alscos/Namnesis/internal/stompbox"
-	"github.com/alscos/Namnesis/internal/sysinfo"
+	"namnesis-ui-gateway/internal/config"
+	"namnesis-ui-gateway/internal/stompbox"
+	"namnesis-ui-gateway/internal/sysinfo"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

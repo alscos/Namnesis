@@ -2,7 +2,7 @@ package httpserver
 
 import (
 	"encoding/json"
-	"github.com/alscos/Namnesis/internal/stompbox"
+	"namnesis-ui-gateway/internal/stompbox"
 	"net/http"
 )
 

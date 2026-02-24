@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/alscos/Namnesis/internal/stompbox"
+	"namnesis-ui-gateway/internal/stompbox"
 )
 
 // helper

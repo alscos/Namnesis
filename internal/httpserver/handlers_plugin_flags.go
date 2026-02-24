@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/alscos/Namnesis/internal/stompbox"
+	"namnesis-ui-gateway/internal/stompbox"
 )
 
 type pluginEnabledReq struct {
