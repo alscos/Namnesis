@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"namnesis-ui-gateway/internal/stompbox"
+	"github.com/alscos/Namnesis/internal/stompbox"
 )
 
 type presetCurrentResponse struct {

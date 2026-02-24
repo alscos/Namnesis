@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"namnesis-ui-gateway/internal/config"
-	"namnesis-ui-gateway/internal/httpserver"
-	"namnesis-ui-gateway/internal/stompbox"
+	"github.com/alscos/Namnesis/internal/config"
+	"github.com/alscos/Namnesis/internal/httpserver"
+	"github.com/alscos/Namnesis/internal/stompbox"
 )
 
 func main() {

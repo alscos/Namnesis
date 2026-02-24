@@ -5,9 +5,9 @@
   // 1) Copy to sysinfo.json:
   //      cp sysinfo.json.example sysinfo.json
   // 2) Point the gateway to it (recommended):
-  //      export SYSINFO_CONFIG=/opt/namnesis/namnesis-ui-gateway/sysinfo.json
+  //      export SYSINFO_CONFIG=/opt/namnesis/github.com/alscos/Namnesis/sysinfo.json
   //    or set it in /etc/namnesis-ui-gateway.env:
-  //      SYSINFO_CONFIG=/opt/namnesis/namnesis-ui-gateway/sysinfo.json
+  //      SYSINFO_CONFIG=/opt/namnesis/github.com/alscos/Namnesis/sysinfo.json
   //
   // IMPORTANT: JACK observability depends on process context.
   // - If the gateway runs as the SAME user that runs JACK/stompbox (recommended), no extra env is usually needed.
