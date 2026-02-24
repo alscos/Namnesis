@@ -6,7 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Namnesis UI Gateway
 
-Namnesis UI Gateway is a thin HTTP and Web UI layer built on top of **Stompbox**, the open-source Neural Amp Modeler host created by Mike Oliphant.
+Namnesis UI Gateway is a thin HTTP and Web UI layer built on top of [Stompbox](https://github.com/mikeoliphant/stompbox), the open-source Neural Amp Modeler host created by Mike Oliphant.
 
 It provides a browser-based control surface and stateless HTTP API for interacting with Stompbox through its TCP control protocol.
 
@@ -14,7 +14,13 @@ It does not modify or replace Stompbox.
 
 Full credit for the audio engine, DSP architecture, and NAM integration belongs to Mike Oliphant and the Stompbox project.
 
----
+
+This gateway depends on and interacts with:
+
+- [Stompbox](https://github.com/mikeoliphant/stompbox) – real-time NAM host and audio engine
+
+Please refer to the Stompbox repository for installation, DSP details, and audio engine documentation.
+
 
 ## What This Project Is
 
