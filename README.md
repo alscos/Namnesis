@@ -77,43 +77,18 @@ Once presets are stored inside Stompbox, preset switching via **MIDI remains fas
 
 ---
 
-## Why Changes Are Not Instantaneous
+## Screenshots
 
-Several architectural factors contribute to current latency:
+### Main Interface
 
-### 1. NAM Model Loading
-Loading a Neural Amp Model requires:
+<p align="center">
+  <img src="docs/images/desktop.png" width="900"/>
+</p>
 
-- File I/O
-- Model deserialization
-- DSP graph reconfiguration
-- Possible internal buffer/state reinitialization
+<p align="center">
+  <img src="docs/images/mobile.png" width="400"/>
+</p>
 
-### 2. IR / Convolution Updates
-Changing cabinet IRs involves:
-
-- IR file load
-- Convolution engine update
-- DSP state refresh
-
-### 3. Plugin Graph Changes
-Enabling, disabling, or reordering plugins may trigger:
-
-- Audio graph rebuild
-- Resource reallocation
-- Internal state recalculation
-
-### 4. Polling-Based UI Synchronization
-The UI reflects Stompbox state through periodic queries.
-This introduces delay between:
-
-- Command execution
-- State refresh
-- UI update
-
-The system prioritizes stability and deterministic DSP behavior over aggressive UI reactivity.
-
----
 
 ## Future Work
 
