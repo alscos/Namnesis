@@ -15,7 +15,7 @@ npx postcss web/static/css/tailwind.input.css \
 echo "    tailwind.css size: $(wc -c < web/static/tailwind.css) bytes"
 
 echo "[2/4] Building Go binary…"
-go build ./cmd/namnesis-ui-gateway/
+go build -buildvcs=false ./cmd/namnesis-ui-gateway/
 
 echo "[3/4] Installing binary…"
 sudo install -m 0755 namnesis-ui-gateway /usr/local/bin/namnesis-ui-gateway

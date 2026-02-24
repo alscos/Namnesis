@@ -198,6 +198,15 @@ All endpoints return JSON.
 
 ---
 
+### Frontend Notes
+
+The generated `tailwind.css` file is committed to the repository.
+
+End users do not need Node.js or Tailwind to build or run the gateway.
+
+Node.js and Tailwind are only required if you want to modify or rebuild the UI styles.
+
+
 ## Security
 
 This gateway:
