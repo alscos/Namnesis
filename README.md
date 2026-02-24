@@ -15,10 +15,6 @@ It does not modify or replace Stompbox.
 Full credit for the audio engine, DSP architecture, and NAM integration belongs to Mike Oliphant and the Stompbox project.
 
 
-This gateway depends on and interacts with:
-
-- [Stompbox](https://github.com/mikeoliphant/stompbox) – real-time NAM host and audio engine
-
 Please refer to the Stompbox repository for installation, DSP details, and audio engine documentation.
 
 
