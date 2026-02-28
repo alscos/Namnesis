@@ -62,6 +62,82 @@ Then:
 
 ------------------------------------------------------------------------
 
+## Optional: OLED over USB Serial (Arduino Nano + SSD1306)
+
+If you use the optional OLED serial bridge, the gateway will open a USB serial
+TTY (typically `/dev/ttyUSB0`). On most Linux systems, USB serial devices are
+owned by `root:dialout` with mode `0660`, which means the service user must have
+permission to access the device.
+
+### Permissions (dialout)
+
+Ensure the user running `namnesis-ui-gateway` belongs to the `dialout` group:
+
+    sudo usermod -aG dialout <user>
+
+Example:
+
+    sudo usermod -aG dialout namnesis
+
+Group membership is only applied to **new logins**. Either reboot, or at least
+log out/in, then restart the service.
+
+Verify:
+
+    id <user>
+
+You should see `dialout` in the group list.
+
+### systemd: SupplementaryGroups
+
+If you prefer, you can enforce this at the unit level by adding:
+
+    SupplementaryGroups=dialout
+
+to the `[Service]` section of your unit, then:
+
+    sudo systemctl daemon-reload
+    sudo systemctl restart namnesis-ui-gateway
+
+### Stable device name (udev symlink)
+
+`/dev/ttyUSB0` can change depending on enumeration order. Create a stable
+symlink, e.g. `/dev/ttyNAMNESIS_OLED`, using a udev rule.
+
+1) Identify your device:
+
+    udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|idProduct' -m 10
+
+2) Create `/etc/udev/rules.d/70-namnesis-oled.rules`:
+
+    SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", \
+      SYMLINK+="ttyNAMNESIS_OLED", MODE="0660", GROUP="dialout", \
+      RUN+="/usr/bin/stty -F /dev/%k 115200 -echo -icanon -hupcl"
+
+3) Reload rules and replug the device:
+
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+
+Verify:
+
+    ls -l /dev/ttyNAMNESIS_OLED
+    stty -F /dev/ttyNAMNESIS_OLED -a | grep speed
+
+### Quick manual test
+
+    cat > /tmp/oled.txt <<'EOF'
+    NUM: 12
+    NAME: Fender deluxe rvb
+    AMP: 2X12 FRIEDMAN
+    FX: GATE REV NAM CAB EQ
+
+    EOF
+
+    sudo tee /dev/ttyNAMNESIS_OLED < /tmp/oled.txt >/dev/null
+
+------------------------------------------------------------------------
+
 ---
 
 ## Development Helper: refresh_ui_Build
