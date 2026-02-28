@@ -70,6 +70,7 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Get("/api/system", s.handleSystem)
 	r.Get("/ui", s.handleUIPage)
 	r.Get("/api/preset/current", s.handlePresetCurrent)
+	r.Get("/api/preset/human", s.handlePresetHuman)
 	r.Post("/api/preset/load", s.handlePresetLoad)
 	r.Post("/api/preset/save-as", s.handlePresetSaveAs)
 	r.Post("/api/preset/delete", s.handlePresetDelete)

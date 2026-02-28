@@ -81,14 +81,11 @@ Once presets are stored inside Stompbox, preset switching via **MIDI remains fas
 
 ### Main Interface
 
-<p align="center">
-  <img src="docs/images/desktop.png" width="900"/>
-</p>
+| Desktop | Mobile |
+|----------|---------|
+| <img src="docs/images/desktop.png" width="900"/> | <img src="docs/images/mobile.png" width="350"/> |
 
-<p align="center">
-  <img src="docs/images/mobile.png" width="400"/>
-</p>
-
+---
 
 ## Future Work
 
