@@ -25,15 +25,198 @@
     function computeDecimalsForParam(step, decimalsFromStep) {
         const s = Number(step);
         const fromStep = decimalsFromStep ? decimalsFromStep(s) : 3;
-        // Yo dejaría mínimo 2 o 3; si quieres “menos ruido visual”, pon 2.
+        // Keep at least two decimal places for fine-grained parameters.
         return Math.max(Number.isFinite(fromStep) ? fromStep : 3, 2);
     }
 
+    R.createLibraryPicker = function createLibraryPicker({ label, options, selectedValue, onChange }) {
+        const wrap = document.createElement('label');
+        wrap.className = 'selector library-picker';
+
+        const lab = document.createElement('span');
+        lab.className = 'muted';
+        lab.textContent = label;
+        wrap.appendChild(lab);
+
+        const control = document.createElement('div');
+        control.className = 'library-picker-control';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'selector-search library-picker-input';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('aria-expanded', 'false');
+        input.placeholder = `Select ${label.toLowerCase()}…`;
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'library-picker-toggle';
+        toggle.setAttribute('aria-label', `Open ${label} library`);
+        toggle.textContent = '⌄';
+
+        const menu = document.createElement('div');
+        menu.className = 'library-picker-menu';
+        menu.hidden = true;
+
+        const list = document.createElement('div');
+        list.className = 'library-picker-list';
+        list.setAttribute('role', 'listbox');
+
+        const summary = document.createElement('div');
+        summary.className = 'library-picker-summary';
+
+        menu.appendChild(list);
+        menu.appendChild(summary);
+        control.appendChild(input);
+        control.appendChild(toggle);
+        control.appendChild(menu);
+        wrap.appendChild(control);
+
+        let values = [];
+        let selected = '';
+        let isOpen = false;
+        let busy = false;
+        let firstVisible = null;
+
+        const normalizedValues = next => Array.from(new Set(next || []));
+
+        const renderList = query => {
+            const q = String(query || '').trim().toLocaleLowerCase();
+            const filtered = q
+                ? values.filter(value => value.toLocaleLowerCase().includes(q))
+                : values;
+
+            list.textContent = '';
+            firstVisible = null;
+            const fragment = document.createDocumentFragment();
+            for (const value of filtered) {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'library-picker-option';
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', value === selected ? 'true' : 'false');
+                option.textContent = value;
+                option.addEventListener('pointerdown', event => event.preventDefault());
+                option.addEventListener('click', () => commit(value).catch(console.error));
+                if (!firstVisible) firstVisible = option;
+                fragment.appendChild(option);
+            }
+            list.appendChild(fragment);
+            summary.textContent = filtered.length === values.length
+                ? `${values.length} items`
+                : `${filtered.length} of ${values.length}`;
+        };
+
+        const setOpen = open => {
+            const next = !!open;
+            const changed = next !== isOpen;
+            isOpen = next;
+            menu.hidden = !isOpen;
+            input.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            wrap.classList.toggle('is-open', isOpen);
+            if (isOpen && changed) renderList(input.value === selected ? '' : input.value);
+        };
+
+        const commit = async value => {
+            value = String(value || '').trim();
+            if (!value || !values.includes(value) || busy) return;
+            const previous = selected;
+            selected = value;
+            input.value = value;
+            setOpen(false);
+            if (value === previous || typeof onChange !== 'function') return;
+
+            busy = true;
+            wrap.classList.add('is-busy');
+            input.disabled = true;
+            toggle.disabled = true;
+            try {
+                await onChange(value);
+            } catch (err) {
+                selected = previous;
+                input.value = previous;
+                throw err;
+            } finally {
+                busy = false;
+                wrap.classList.remove('is-busy');
+                input.disabled = false;
+                toggle.disabled = false;
+            }
+        };
+
+        input.addEventListener('focus', () => {
+            setOpen(true);
+            requestAnimationFrame(() => input.select());
+        });
+        input.addEventListener('click', () => setOpen(true));
+        input.addEventListener('input', () => {
+            setOpen(true);
+            renderList(input.value);
+        });
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                input.value = selected;
+                setOpen(false);
+                input.blur();
+                return;
+            }
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const exact = values.find(value => value === input.value.trim());
+                const value = exact || firstVisible?.textContent || '';
+                commit(value).catch(console.error);
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setOpen(true);
+                firstVisible?.focus();
+            }
+        });
+        toggle.addEventListener('click', () => {
+            setOpen(!isOpen);
+            if (isOpen) {
+                input.focus();
+                input.select();
+            }
+        });
+
+        const outsideHandler = event => {
+            if (!wrap.contains(event.target)) {
+                input.value = selected;
+                setOpen(false);
+            }
+        };
+        document.addEventListener('pointerdown', outsideHandler);
+
+        const api = {
+            el: wrap,
+            update(nextOptions, nextSelected) {
+                values = normalizedValues(nextOptions);
+                const candidate = String(nextSelected || '').trim();
+                selected = candidate;
+                if (!isOpen && document.activeElement !== input) input.value = selected;
+                if (isOpen) renderList(input.value === selected ? '' : input.value);
+            },
+            value() { return selected; },
+            destroy() { document.removeEventListener('pointerdown', outsideHandler); },
+        };
+        api.update(options, selectedValue);
+        return api;
+    };
+
     R.buildDropdown = function buildDropdown(label, options, selectedValue, onChange, state) {
-        const wrap = document.createElement('div');
+        const values = Array.from(new Set(options || []));
+        const initial = String(selectedValue || '').trim();
+
+        const wrap = document.createElement('label');
         wrap.className = 'selector';
 
-        const lab = document.createElement('div');
+        const lab = document.createElement('span');
         lab.className = 'muted';
         lab.textContent = label;
         wrap.appendChild(lab);
@@ -44,24 +227,27 @@
         ph.textContent = '---';
         sel.appendChild(ph);
 
-        for (const opt of options) {
+        for (const opt of values) {
             const o = document.createElement('option');
             o.value = opt;
             o.textContent = opt;
             sel.appendChild(o);
         }
 
-        const initial = (selectedValue && options.includes(selectedValue)) ? selectedValue : '';
-        state.isProgrammaticModelUpdate = true;
+        if (initial && !values.includes(initial)) {
+            const current = document.createElement('option');
+            current.value = initial;
+            current.textContent = initial;
+            sel.appendChild(current);
+        }
         sel.value = initial;
-        state.isProgrammaticModelUpdate = false;
 
         if (typeof onChange === 'function') {
-            sel.addEventListener('change', async (e) => {
-                if (state.isProgrammaticModelUpdate) return;
-                const v = e.target.value;
-                if (!v) return;
-                try { await onChange(v); } catch (err) { console.error(err); }
+            sel.addEventListener('change', async e => {
+                if (state?.isProgrammaticModelUpdate) return;
+                const value = e.target.value;
+                if (!value) return;
+                try { await onChange(value); } catch (err) { console.error(err); }
             });
         }
 
@@ -75,7 +261,7 @@
         pluginMetaByName,
         paramMetaByBaseType,
         buildPill,
-        opts // NEW: { availablePlugins: [], onAddPlugin: async (chainName, baseType)=>{} }
+        opts // { availablePlugins: [], onAddPlugin: async (chainName, baseType) => {} }
     ) {
         elLanes.textContent = '';
 
@@ -86,13 +272,15 @@
         for (const chainName of chainOrder) {
             const lane = document.createElement('div');
             lane.className = 'lane';
+            lane.dataset.chain = chainName;
 
-            // --- Lane header (title + Add plugin dropdown)
+            // Chain header and plugin selector.
             const head = document.createElement('div');
             head.className = 'lane-head';
 
             const title = document.createElement('h3');
-            title.textContent = chainName;
+            const chainItems = chains[chainName] || [];
+            title.innerHTML = `<span>${chainName}</span><span class="lane-count">${chainItems.length}</span>`;
             head.appendChild(title);
 
             if (opts?.availablePlugins?.length && typeof opts?.onAddPlugin === 'function') {
@@ -121,7 +309,7 @@
 
             lane.appendChild(head);
 
-            const items = chains[chainName] || [];
+            const items = chainItems;
             if (!items.length) {
                 const empty = document.createElement('div');
                 empty.className = 'muted';
@@ -136,7 +324,7 @@
                 const p = paramsByPlugin[pluginName] || {};
                 const baseType = pluginName.replace(/_\d+$/, '');
                 const meta = pluginMetaByName?.[baseType] || pluginMetaByName?.[pluginName] || null;
-                // NEW: pass chain context to the pill builder
+                // Pass chain context to the plugin-card builder.
                 lane.appendChild(buildPill(pluginName, p, meta, baseType, {
                     chainName,
                     index: i,
@@ -200,7 +388,7 @@
 
         // If alpha < 1, assume it's on dark UI anyway; treat as dark if color itself is dark.
         const L = relLuminance(c);
-        return L < 0.35; // threshold: tweak if needed (0.30–0.45 typical)
+        return L < 0.35; // WCAG-oriented threshold tuned for the dark control surface.
     }
 
     R.buildReadOnlyRow = function buildReadOnlyRow(paramName, raw) {
@@ -231,7 +419,7 @@
   const vv = document.createElement('div');
   vv.className = 'v';
 
-  // --- slider FIRST (so editor can reference it) ---
+  // Create the slider before the editor so both controls can share state.
   const slider = document.createElement('input');
   slider.type = 'range';
 
@@ -248,7 +436,7 @@
   slider.style.width = '100%';
   slider.style.marginTop = '4px';
 
-  // --- editor AFTER slider ---
+  // Create the numeric editor after the slider.
   let editor = null;
   if (uiState && typeof uiState === 'object') {
     editor = buildInlineNumericEditor({
@@ -402,7 +590,7 @@
         // Decimals: based on step, but show extra for fine-feel params
         const dec = computeDecimalsForParam(step0, decimalsFromStep);
 
-        // IMPORTANT: Do not quantize “fine-feel” params on commit,
+        // Do not quantize fine-grained parameters on commit;
         // or ArrowUp/Down will look like it “does nothing” until x10.
         const doSnap = false;
 
@@ -431,7 +619,7 @@
         input.inputMode = 'decimal';
         input.autocomplete = 'off';
         input.spellcheck = false;
-        input.className = 'pill-param-input'; // ponle CSS acorde (abajo te digo)
+        input.className = 'pill-param-input';
 
         input.value = fmt(value);
 
@@ -462,7 +650,7 @@
                 const cur = parseUserNumber ? parseUserNumber(input.value) : Number(input.value);
                 const base = Number.isFinite(cur) ? cur : (Number.isFinite(value) ? value : 0);
 
-               // Keyboard nudge step (fixed): 0.10 per keystroke
+                // Keyboard nudge step: 0.10 per keystroke.
                 // Modifiers:
                 //  - Shift: x10 (1.0)
                 //  - Alt/Ctrl: /10 (0.01)
@@ -492,12 +680,12 @@
             onParamCommit,
             onPluginToggleResync,
             uiState,
-            // NEW: chain context (provided by renderChainsFromProgram via buildPill wrapper)
+            // Chain context supplied by renderChainsFromProgram.
             chainName,
             chainIndex,
             chainLength,
 
-            // NEW: callbacks (provided by app.js)
+            // Chain action callbacks supplied by app.js.
             onUnload,   // async ({chainName, pluginName, index}) => {}
             onMoveUp,   // async ({chainName, pluginName, from}) => {}
             onMoveDown  // async ({chainName, pluginName, from}) => {}
@@ -505,18 +693,12 @@
 
         const el = document.createElement('div');
         el.className = 'pill';
-        if (bgColor) el.style.background = bgColor;
+        el.style.setProperty('--plugin-accent', bgColor || '#6366f1');
+        el.dataset.plugin = pluginName;
 
-        // Apply dark/light class for param input contrast
-        if (isDarkBackground(bgColor)) {
-            el.classList.add('pill-dark');
-        }
-        // Contrast class for editable numeric input (and optionally other text)
-        const dark = isDarkBackground(bgColor);
-        el.classList.toggle('pill-dark', dark);
-        el.classList.toggle('pill-light', !dark);
-
-        if (fgColor) el.style.color = fgColor;
+        // The new UI keeps every plugin on a consistent dark surface and uses
+        // Stompbox colour metadata as an accent, preserving identity without sacrificing contrast.
+        el.classList.add('pill-dark');
 
 
         const enabledRaw = pluginParams?.Enabled;
@@ -549,8 +731,7 @@
         head.appendChild(state);
         el.appendChild(head);
 
-        // --- NEW: corner actions (Unload / Move Up / Move Down)
-        // Only render if callbacks provided.
+        // Render chain actions only when the corresponding callbacks are available.
         if (typeof onUnload === 'function') {
             const x = document.createElement('button');
             x.type = 'button';
@@ -638,7 +819,7 @@
 
 
 
-            // Note: meta is declared as const above; we create a new reference for downstream logic.
+            // Derive fallback metadata without mutating the parsed definition.
             const meta2 = (!meta || !Number.isFinite(meta.min) || !Number.isFinite(meta.max))
                 ? (
                     (lname === 'volume' || lname === 'vol' || lname === 'gain')
@@ -646,11 +827,11 @@
                         : (isLevelish ? { min: -24, max: 24, step: 0.1, def: 0, unit: 'dB' } : meta)
                 )
                 : meta;
-            // --- 2.5) HARDEN: "Level" plugin semantics
+            // Enforce the distinct writable and metering semantics of the Level plugin.
             // Stompbox "Level" plugin exposes:
             //   - Volume : writable trim (persisted)
             //   - Level  : read-only meter/output (always returns ~0 / runtime value, not persisted)
-            // So: force Volume to slider and force Level to read-only.
+            // Volume is writable; Level is read-only.
             if (baseType === 'Level') {
                 if (lname === 'level') {
                     body.appendChild(R.buildReadOnlyRow(k, raw));
@@ -668,13 +849,13 @@
                 }
             }
 
-            // --- 1) Output-only params are always read-only
+            // Output-only parameters are read-only.
             if (meta?.isOutput && !isLevelish) {
                 body.appendChild(R.buildReadOnlyRow(k, raw));
                 continue;
             }
 
-            // --- 2) File params (Model / Impulse) => dropdown if we have tree
+            // Render file-backed parameters as selectors when option metadata is available.
             // In DumpConfig trees are keyed by BASE type (e.g. "ConvoReverb.Impulse"),
             // while program instances are "ConvoReverb_2", "ConvoReverb_3", etc.
 
@@ -686,17 +867,14 @@
                 const options = (fileTrees && (fileTrees[keyBase] || fileTrees[keyExact])) || [];
 
                 if (options.length) {
-                    // buildDropdown(label, options, current, onChange, state)
                     const ddState = { isProgrammaticModelUpdate: false };
                     const row = R.buildDropdown(k, options, raw, async (v) => {
                         try {
-                            // NOTE: setFileParam is usually the correct endpoint for file params,
-                            // but your onParamCommit currently targets numeric only.
-                            // So we call a dedicated hook if present, else fallback to onParamCommit.
+                            // Prefer the dedicated file-parameter endpoint; retain the generic fallback for compatibility.
                             if (opts.onFileParamCommit) {
-                                await opts.onFileParamCommit(pluginName, k, v);  // instancia: ConvoReverb_2
+                                await opts.onFileParamCommit(pluginName, k, v);
                             } else {
-                                // last-resort fallback (won't work if backend expects /api/param/file)
+                                // Compatibility fallback for callers without a dedicated file handler.
                                 await onParamCommit(pluginName, k, v);
                             }
                             await onPluginToggleResync();
@@ -722,8 +900,7 @@
                 k !== 'Model' &&
                 k !== 'Impulse';
 
-            // NOTE: your current boolean block is unreachable because allow excludes bool.
-            // We'll keep your intended behaviour: if bool -> toggle.
+            // Boolean parameters use toggle controls independently of numeric-slider eligibility.
             const isBool = isBooleanParam(meta, k);
             if (isBool && Number.isFinite(n)) {
                 body.appendChild(R.buildBooleanToggleRow(pluginName, k, n, (val) => onParamCommit(pluginName, k, val)));

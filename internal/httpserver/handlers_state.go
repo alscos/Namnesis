@@ -2,85 +2,120 @@ package httpserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
-type stateResponse struct {
-	Meta struct {
-		Now string `json:"now"`
-	} `json:"meta"`
-
-	DumpConfig struct {
-		Raw      string `json:"raw,omitempty"`
-		Duration string `json:"duration"`
-		Error    string `json:"error,omitempty"`
-	} `json:"dumpConfig"`
-
-	Program struct {
-		Raw      string `json:"raw,omitempty"`
-		Duration string `json:"duration"`
-		Error    string `json:"error,omitempty"`
-	} `json:"program"`
-
-	Presets struct {
-		Raw      string `json:"raw,omitempty"`
-		Duration string `json:"duration"`
-		Error    string `json:"error,omitempty"`
-	} `json:"presets"`
+type stateRefreshRequest struct {
+	Scope string `json:"scope"`
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	var resp stateResponse
-	resp.Meta.Now = time.Now().Format(time.RFC3339)
+	if s.state == nil {
+		http.Error(w, "state manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state.Snapshot())
+}
 
-	// Dump Config
-	t0 := time.Now()
-	out, err := s.sb.DumpConfig()
-	resp.DumpConfig.Duration = time.Since(t0).String()
-	if err != nil {
-		resp.DumpConfig.Error = err.Error()
-	} else {
-		resp.DumpConfig.Raw = out
+func (s *Server) handleStateRefresh(w http.ResponseWriter, r *http.Request) {
+	if s.state == nil {
+		http.Error(w, "state manager unavailable", http.StatusServiceUnavailable)
+		return
 	}
 
-	// Dump Program
-	t1 := time.Now()
-	out, err = s.sb.DumpProgram()
-	resp.Program.Duration = time.Since(t1).String()
-	if err != nil {
-		resp.Program.Error = err.Error()
-	} else {
-		resp.Program.Raw = out
+	var req stateRefreshRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	scope := strings.ToLower(strings.TrimSpace(req.Scope))
+	if scope == "" {
+		scope = "all"
 	}
 
-	// List Presets
-	t2 := time.Now()
-	out, err = s.sb.ListPresets()
-	resp.Presets.Duration = time.Since(t2).String()
-	if err != nil {
-		resp.Presets.Error = err.Error()
-	} else {
-		resp.Presets.Raw = out
+	var err error
+	switch scope {
+	case "program":
+		err = s.state.RefreshProgramNow("manual")
+	case "presets":
+		err = s.state.RefreshPresetsNow("manual")
+	case "config":
+		err = s.state.RefreshConfigNow("manual")
+	case "all":
+		err = s.state.RefreshAllNow("manual")
+	default:
+		http.Error(w, "invalid scope; use program, presets, config or all", http.StatusBadRequest)
+		return
 	}
 
-	// Decide HTTP status
 	status := http.StatusOK
-	allFailed := resp.DumpConfig.Error != "" &&
-		resp.Program.Error != "" &&
-		resp.Presets.Error != ""
-
-	if allFailed {
+	if err != nil {
 		status = http.StatusBadGateway
 	}
+	writeJSON(w, status, s.state.Snapshot())
+}
 
-	// Write headers + status ONCE
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if s.state == nil {
+		http.Error(w, "state manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
-	// Encode response body
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(resp)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
 
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	if err := writeSSE(w, "snapshot", s.state.Snapshot()); err != nil {
+		return
+	}
+	flusher.Flush()
+
+	events, cancel := s.state.Subscribe()
+	defer cancel()
+
+	heartbeatEvery := s.cfg.SSEHeartbeatInterval
+	if heartbeatEvery <= 0 {
+		heartbeatEvery = 15 * time.Second
+	}
+	heartbeat := time.NewTicker(heartbeatEvery)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			if err := writeSSE(w, event.Type, event); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := fmt.Fprintf(w, ": heartbeat %d\n\n", time.Now().Unix()); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func writeSSE(w http.ResponseWriter, eventName string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", eventName); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	return err
 }

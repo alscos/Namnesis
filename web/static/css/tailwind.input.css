@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* Tell Tailwind v4 where your classes live (paths are relative to this file) */
+/* Tailwind v4 content sources; paths are relative to this file. */
 @source "../../../web/templates/**/*.html";
 @source "../../../web/templates/**/*.tmpl";
 @source "../../../web/static/**/*.js";
 
-/* Optional: still load your JS config (theme/plugins) if you use it */
+/* Shared theme and plugin configuration. */
 @config "../../../tailwind.config.js";
 

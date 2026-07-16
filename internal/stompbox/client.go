@@ -9,10 +9,13 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Client struct {
+	mu sync.Mutex
+
 	Addr        string
 	DialTimeout time.Duration
 	ReadTimeout time.Duration
@@ -112,7 +115,7 @@ func (c *Client) SetChain(chain string, plugins []string) error {
 	return firstProtocolError(resp)
 }
 
-// ReleasePlugin unloads/frees a plugin instance (after you removed it from the chain).
+// ReleasePlugin frees a plugin instance after it has been removed from its chain.
 func (c *Client) ReleasePlugin(plugin string) error {
 	plugin = strings.TrimSpace(plugin)
 	if plugin == "" {
@@ -128,6 +131,9 @@ func (c *Client) ReleasePlugin(plugin string) error {
 // doUntil sends a single command (must include \r\n) and reads lines until stop(line,state) returns true.
 // It refreshes read deadlines per read so large dumps don’t time out mid-stream.
 func (c *Client) doUntil(command string, stop func(lineTrim string, st *termState) bool) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	conn, err := net.DialTimeout("tcp", c.Addr, c.DialTimeout)
 	if err != nil {
 		return "", err

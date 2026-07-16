@@ -1,113 +1,151 @@
 // api.js
 (() => {
-    const A = {};
-    let setParamBusy = false;
-    let queuedSet = null; // { plugin, param, value }
+  const A = {};
 
-    A.setNumericParam = async function setNumericParam(plugin, param, value) {
-        const res = await fetch('/api/param/set', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ plugin, param, value })
-        });
-        if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(txt || `HTTP ${res.status}`);
-        }
-    };
+  const paramQueues = new Map();
 
-    // Serialize param writes: keep only latest while in-flight
-    A.setNumericParamQueued = async function setNumericParamQueued(plugin, param, value) {
-        queuedSet = { plugin, param, value };
-        if (setParamBusy) return;
+  async function requestJSON(url, options = {}) {
+    const res = await fetch(url, options);
+    const text = await res.text().catch(() => '');
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); }
+      catch { data = { message: text }; }
+    }
+    if (!res.ok) {
+      throw new Error(data?.error || data?.message || text || `HTTP ${res.status}`);
+    }
+    return data;
+  }
 
-        setParamBusy = true;
+  A.setNumericParam = function setNumericParam(plugin, param, value) {
+    return requestJSON('/api/param/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugin, param, value }),
+    });
+  };
+
+  // Serialize writes independently per parameter and keep only the newest pending value.
+  // The previous global queue could silently discard a write to parameter B while A was in flight.
+  A.setNumericParamQueued = function setNumericParamQueued(plugin, param, value) {
+    const key = `${plugin}::${param}`;
+    let queue = paramQueues.get(key);
+    if (!queue) {
+      queue = { busy: false, pending: null, waiters: [] };
+      paramQueues.set(key, queue);
+    }
+
+    queue.pending = { plugin, param, value };
+
+    return new Promise((resolve, reject) => {
+      queue.waiters.push({ resolve, reject });
+      if (queue.busy) return;
+
+      queue.busy = true;
+      (async () => {
         try {
-            while (queuedSet) {
-                const req = queuedSet;
-                queuedSet = null;
-                await A.setNumericParam(req.plugin, req.param, req.value);
-            }
+          while (queue.pending) {
+            const req = queue.pending;
+            queue.pending = null;
+            await A.setNumericParam(req.plugin, req.param, req.value);
+          }
+          const waiters = queue.waiters.splice(0);
+          waiters.forEach(w => w.resolve());
+        } catch (err) {
+          const waiters = queue.waiters.splice(0);
+          waiters.forEach(w => w.reject(err));
+          throw err;
         } finally {
-            setParamBusy = false;
+          queue.busy = false;
+          if (!queue.pending && !queue.waiters.length) paramQueues.delete(key);
         }
-    };
+      })().catch(err => console.error('SetParam queue failed:', err));
+    });
+  };
 
-    A.setFileParam = async function setFileParam(plugin, param, value) {
-        const res = await fetch('/api/param/file', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ plugin, param, value })
-        });
-        if (!res.ok) {
-            const t = await res.text();
-            throw new Error(t || `HTTP ${res.status}`);
+  A.setFileParam = function setFileParam(plugin, param, value) {
+    return requestJSON('/api/param/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugin, param, value }),
+    });
+  };
+
+  A.setPluginEnabled = function setPluginEnabled(pluginName, enabled) {
+    return requestJSON(`/api/plugins/${encodeURIComponent(pluginName)}/enabled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+  };
+
+  A.setChain = function setChain(chain, plugins) {
+    return requestJSON(`/api/chains/${encodeURIComponent(chain)}/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugins: plugins || [] }),
+    });
+  };
+
+  A.releasePlugin = function releasePlugin(pluginName) {
+    return requestJSON(`/api/plugins/${encodeURIComponent(pluginName)}/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+  };
+
+  A.loadPreset = function loadPreset(name) {
+    return requestJSON('/api/preset/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  };
+
+  A.savePreset = function savePreset(name) {
+    return requestJSON('/api/preset/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  };
+
+  A.fetchState = async function fetchState() {
+    const started = performance.now();
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    const data = await res.json();
+    return { res, data, clientDurationMs: performance.now() - started };
+  };
+
+  A.refreshState = function refreshState(scope = 'all') {
+    return requestJSON('/api/state/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope }),
+    });
+  };
+
+  A.openEvents = function openEvents(handlers = {}) {
+    const source = new EventSource('/api/events');
+    const names = ['snapshot', 'program', 'config', 'presets'];
+
+    for (const name of names) {
+      source.addEventListener(name, event => {
+        try {
+          const payload = JSON.parse(event.data);
+          handlers[name]?.(payload, event);
+        } catch (err) {
+          handlers.error?.(err);
         }
-        return await res.json().catch(() => ({}));
-    };
+      });
+    }
+    source.onopen = event => handlers.open?.(event);
+    source.onerror = event => handlers.disconnect?.(event);
+    return source;
+  };
 
-    A.setPluginEnabled = async function setPluginEnabled(pluginName, enabled) {
-        const res = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/enabled`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled })
-        });
-        if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(txt || `HTTP ${res.status}`);
-        }
-    };
-    A.setChain = async function setChain(chain, plugins) {
-        const res = await fetch(`/api/chains/${encodeURIComponent(chain)}/set`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ plugins: plugins || [] }),
-        });
-        if (!res.ok) throw new Error(await res.text().catch(() => "") || `HTTP ${res.status}`);
-        return await res.json().catch(() => ({}));
-    };
-
-    A.releasePlugin = async function releasePlugin(pluginName) {
-        const res = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}/release`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-        });
-        if (!res.ok) throw new Error(await res.text().catch(() => "") || `HTTP ${res.status}`);
-        return await res.json().catch(() => ({}));
-    };
-
-
-    A.loadPreset = async function loadPreset(name) {
-        const res = await fetch('/api/preset/load', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-        });
-        if (!res.ok) {
-            const t = await res.text();
-            throw new Error(t || `HTTP ${res.status}`);
-        }
-        return await res.json().catch(() => ({}));
-    };
-
-    A.savePreset = async function savePreset(name) {
-        const res = await fetch("/api/preset/save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-        return data;
-    };
-
-    A.fetchState = async function fetchState() {
-        const res = await fetch('/api/state', { cache: 'no-store' });
-        const data = await res.json();
-        return { res, data };
-    };
-
-    window.NAMNESIS = window.NAMNESIS || {};
-    window.NAMNESIS.api = A;
+  window.NAMNESIS = window.NAMNESIS || {};
+  window.NAMNESIS.api = A;
 })();

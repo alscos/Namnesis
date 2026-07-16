@@ -17,7 +17,7 @@
   //
   // Recommended systemd pattern:
   //   [Service]
-  //   User=ale
+  //   User=<service-user>
   //   Group=ale
 
   // Cache TTL for /api/system snapshots (avoid hammering journalctl/jack_lsp/aconnect)
@@ -111,9 +111,9 @@
     // This matches against the FULL aconnect -l output (joined by newlines).
     //
     // Examples:
-    //   "(?i)client\\s+\\d+:\\s+'SINCO'\\b"
-    //   "(?i)client\\s+\\d+:\\s+'M-Wave'\\b"
-    "alsa_required_regex": "(?i)client\\s+\\d+:\\s+'SINCO'\\b",
+    //   "(?i)client\\s+\\d+:\\s+'SINCO'"
+    //   "(?i)client\\s+\\d+:\\s+'M-Wave'"
+    "alsa_required_regex": "(?i)client\\s+\\d+:\\s+'SINCO'",
 
     // Optional: prove MIDI is actually routed into stompbox (requires routing probe ok).
     // This matches against routing.summary edges.

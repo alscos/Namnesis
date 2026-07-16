@@ -41,6 +41,8 @@ func (s *Server) handleChainSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncProgram("set-chain")
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":      true,
@@ -61,6 +63,8 @@ func (s *Server) handlePluginRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "releaseplugin error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+
+	s.syncProgram("release-plugin")
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{

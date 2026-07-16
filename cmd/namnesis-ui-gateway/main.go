@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alscos/Namnesis/internal/config"
+	"github.com/alscos/Namnesis/internal/controlstate"
 	"github.com/alscos/Namnesis/internal/httpserver"
 	"github.com/alscos/Namnesis/internal/oled"
 	"github.com/alscos/Namnesis/internal/stompbox"
@@ -28,9 +29,25 @@ func main() {
 	sb.ReadTimeout = cfg.ReadTimeout
 	sb.MaxBytes = int(cfg.MaxBytes)
 
+	state := controlstate.New(
+		sb,
+		cfg.ProgramPollInterval,
+		cfg.ConfigRefreshInterval,
+		cfg.PresetRefreshInterval,
+	)
+
+	// The HTTP API is cache-first. Populate the first snapshot before accepting traffic,
+	// but keep the service available even when Stompbox is temporarily offline.
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	if err := state.Bootstrap(bootstrapCtx); err != nil {
+		log.Printf("state bootstrap completed with errors: %v", err)
+	}
+	bootstrapCancel()
+
 	r, err := httpserver.NewRouter(httpserver.RouterDeps{
 		Config: cfg,
 		SB:     sb,
+		State:  state,
 	})
 	if err != nil {
 		log.Fatalf("router init: %v", err)
@@ -40,39 +57,40 @@ func main() {
 		Addr:              cfg.ListenAddr,
 		Handler:           r,
 		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
-	// --- lifecycle context ---
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go state.Run(ctx)
 
-	// --- OLED bridge (optional) ---
-	// Best: create a udev symlink /dev/ttyNAMNESIS_OLED for stable naming
+	// OLED reads the shared cached program snapshot. It no longer opens its own
+	// Dump Program TCP connection every 400 ms.
 	o := oled.NewOLEDSerial("/dev/ttyNAMNESIS_OLED", 115200)
-	go o.Start(ctx, sb.DumpProgram, 400*time.Millisecond)
+	go o.Start(ctx, state.ProgramRaw, 400*time.Millisecond)
 
-	// --- graceful shutdown on SIGINT/SIGTERM ---
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-stop
 		log.Printf("shutdown requested; stopping...")
-
-		// stop background workers
 		cancel()
 
-		// graceful HTTP shutdown
-		ctxTO, cancelTO := context.WithTimeout(context.Background(), 2*time.Second)
+		ctxTO, cancelTO := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancelTO()
 		_ = srv.Shutdown(ctxTO)
-
-		// close serial explicitly (optional; Start() also closes on ctx.Done())
 		o.Close()
 	}()
 
-	log.Printf("namnesis-ui-gateway listening on %s (stompbox %s:%d)\n",
-		cfg.ListenAddr, cfg.StompHost, cfg.StompPort)
+	log.Printf(
+		"namnesis-ui-gateway listening on %s (stompbox %s:%d, program poll %s)",
+		cfg.ListenAddr,
+		cfg.StompHost,
+		cfg.StompPort,
+		cfg.ProgramPollInterval,
+	)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)

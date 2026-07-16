@@ -1,131 +1,112 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>NAMNESIS UI</title>
-
-
-  <link rel="stylesheet" href="/static/app.css" />
+  <meta name="theme-color" content="#08090b" />
+  <title>NAMNESIS Control Surface</title>
+  <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="/static/img/logo_s.png" type="image/png" />
   <link rel="stylesheet" href="/static/tailwind.css" />
-
-
-
+  <link rel="stylesheet" href="/static/app.css" />
 </head>
-
-<body class="min-h-dvh bg-neutral-950 text-neutral-200 antialiased selection:bg-indigo-500/30">
-
-  <div class="mx-auto max-w-[1600px] w-full px-4 py-6 md:px-8">
-   <header class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-neutral-900 pb-6 gap-6 md:gap-0">
-  <div class="flex items-center gap-4 md:gap-6">
-    <img src="/static/img/logo.svg" alt="Namnesis"
-      class="logo-white h-[90px] md:h-[130px] w-auto opacity-95 transition-all" />
-
-    <div class="flex flex-col gap-3">
-      
-      <div class="flex flex-col md:flex-row items-start md:items-center gap-2">
-        <div id="now"
-          class="rounded bg-black border border-neutral-800 px-3 py-1.5 text-[10px] md:text-xs font-mono text-neutral-500 whitespace-nowrap">
-          ...
-        </div>
-        <div id="status"
-          class="status-pulse rounded bg-black border border-indigo-500/30 px-3 py-1.5 text-[10px] md:text-xs font-bold uppercase tracking-widest text-indigo-400 min-w-[70px] md:min-w-[100px] text-center transition-all">
-          loading…
+<body>
+  <div class="app-shell">
+    <header class="instrument-header">
+      <div class="brand-block">
+        <img src="/static/img/logo.svg" alt="Namnesis" class="brand-logo logo-white" />
+        <div>
+          <p class="eyebrow">Dedicated neural amplifier</p>
+          <h1>NAMNESIS</h1>
+          <p class="brand-subtitle">Control surface · DSP remains sovereign</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-3">
-        <span id="refreshModeLabel" class="text-[10px] md:text-[11px] font-black tracking-widest text-white/70">LIVE</span>
+      <div class="header-telemetry">
+        <div class="stream-pill" title="Gateway event stream">
+          <span id="streamDot" class="stream-dot" data-state="connecting"></span>
+          <span id="streamStatus">CONNECTING</span>
+        </div>
+        <div class="metric-pill"><span>UI</span><strong id="now">— ms</strong></div>
+        <div id="status" class="metric-pill status-pill" data-state="loading">loading</div>
 
-        <label class="relative inline-flex items-center cursor-pointer">
-          <input id="refreshModeToggle" type="checkbox" class="sr-only peer" checked>
-          <div class="w-10 h-5 md:w-11 md:h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:bg-emerald-500/40 transition-colors"></div>
-          <div class="absolute left-1 top-1 w-3 h-3 md:w-4 md:h-4 bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
+        <label class="follow-control" title="Follow changes from MIDI and other controllers">
+          <span id="refreshModeLabel">FOLLOW</span>
+          <input id="refreshModeToggle" type="checkbox" checked />
+          <span class="follow-switch" aria-hidden="true"></span>
         </label>
-
-        <button id="manualRefreshBtn"
-          class="hidden h-8 md:h-9 rounded-lg bg-white/10 hover:bg-white/15 px-3 md:px-4 text-[10px] md:text-[11px] font-black uppercase tracking-widest text-white/90 transition-all active:scale-95">
-          Refresh
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div id="sysStatusBar"
-    class="flex flex-wrap items-center gap-4 text-[10px] md:text-[11px] uppercase tracking-widest text-white/80">
-    <span id="sysReady" class="font-black">—</span>
-    <span id="sysXruns">XRUNS —</span>
-    <span id="sysLatency">LAT —</span>
-    <span id="sysMidi">🎹</span>
-    <span id="sysIF">IF —</span>
-  </div>
-</header>
-
-    <section
-      class="mt-6 flex flex-col lg:flex-row items-stretch lg:items-end gap-6 bg-neutral-900/20 p-4 rounded-2xl border border-neutral-800/50 backdrop-blur-md">
-      <div id="modelSelectors"
-        class="flex flex-col sm:flex-row items-stretch sm:items-end gap-6 flex-1 
-        [&_.muted]:text-[10px] [&_.muted]:uppercase [&_.muted]:font-bold [&_.muted]:text-neutral-500 [&_.muted]:tracking-wider [&_.muted]:mb-1.5
-        [&_select]:h-10 [&_select]:w-full [&_select]:lg:max-w-[320px] [&_select]:rounded-lg [&_select]:border [&_select]:border-neutral-700 [&_select]:bg-neutral-950 [&_select]:px-4 [&_select]:text-sm [&_select]:text-neutral-100 [&_select]:outline-none [&_select]:focus:border-indigo-500">
+        <button id="manualRefreshBtn" class="ghost-button hidden" type="button">Sync now</button>
       </div>
 
-      <div
-        class="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 shrink-0 lg:border-l lg:border-neutral-800 lg:pl-6">
-        <label class="flex flex-col flex-1">
-          <span class="text-[10px] uppercase font-bold text-neutral-500 tracking-wider mb-1.5">Preset</span>
-          <select id="presetSelect"
-            class="h-10 w-full sm:min-w-[240px] rounded-lg border border-neutral-700 bg-neutral-950 px-4 text-sm text-neutral-100 outline-none focus:border-indigo-500 transition-colors">
-          </select>
-        </label>
-        <button id="savePresetBtn"
-          class="h-10 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-8 text-[11px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-indigo-500/20">
-          SAVE
-        </button>
-        <button id="savePresetAsBtn"
-          class="h-10 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-8 text-[11px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-indigo-500/20">
-          SAVE AS
-        </button>
+      <div id="sysStatusBar" class="system-strip" aria-label="System status">
+        <span id="sysReady" class="system-ready">—</span>
+        <span id="sysXruns">XRUNS —</span>
+        <span id="sysLatency">LAT —</span>
+        <span id="sysMidi">MIDI —</span>
+        <span id="sysIF">IF —</span>
+      </div>
+    </header>
 
-        <button id="deletePresetBtn"
-          class="h-10 rounded-lg bg-rose-600 hover:bg-rose-500 px-8 text-[11px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-rose-500/20">
-          DELETE
-        </button>
+    <section class="command-deck" aria-label="Amp and preset controls">
+      <div class="preset-control">
+        <label for="presetSelect">Preset</label>
+        <select id="presetSelect"></select>
+      </div>
+
+      <div id="modelSelectors" class="model-controls"></div>
+
+      <div class="preset-actions">
+        <button id="savePresetBtn" class="primary-button" type="button">Save</button>
+        <button id="savePresetAsBtn" class="secondary-button" type="button">Save as</button>
+        <button id="deletePresetBtn" class="danger-button" type="button">Delete</button>
       </div>
     </section>
 
-    <!-- Core fixed processing (Input / EQ-7 / Master) -->
-    <section id="coreRow"
-      class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-neutral-900/10 p-4 rounded-2xl border border-neutral-800/50 backdrop-blur-md">
-      <!-- populated by app.js -->
+    <section class="section-panel core-panel" aria-labelledby="core-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Fixed signal path</p>
+          <h2 id="core-title">Input · Tonestack · Master</h2>
+        </div>
+        <span class="section-note">Global controls</span>
+      </div>
+      <div id="coreRow" class="core-grid"></div>
     </section>
 
-    <main class="mt-8 flex flex-col gap-8">
+    <main>
+      <section class="section-panel chains-panel" aria-labelledby="chains-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Editable processing</p>
+            <h2 id="chains-title">Signal chains</h2>
+          </div>
+          <span class="section-note">Changes are pushed from Stompbox</span>
+        </div>
 
-      <section class="rounded-2xl border border-neutral-800 bg-neutral-900/10 p-6">
-        <h2
-          class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">
-          Plugin Slots</h2>
-        <div id="slotsRow" class="flex flex-wrap gap-4"></div>
+        <div class="chain-tabs" role="tablist" aria-label="Signal chain">
+          <button type="button" data-chain-tab="Input" role="tab">Input</button>
+          <button type="button" data-chain-tab="FxLoop" role="tab">FX loop</button>
+          <button type="button" data-chain-tab="Output" role="tab">Output</button>
+        </div>
+
+        <div id="lanesRow" class="chains-grid" data-active-chain="Input"></div>
       </section>
 
-      <section class="rounded-2xl border border-neutral-800 bg-neutral-900/10 p-6">
-        <h2
-          class="text-[10px] uppercase font-black tracking-[0.3em] text-neutral-600 mb-6 border-b border-neutral-900 pb-2">
-          Signal Chains</h2>
-        <div id="lanesRow" class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"></div>
-      </section>
-
-      <details class="group rounded-xl border border-neutral-900 bg-neutral-950/50">
-        <summary
-          class="flex items-center cursor-pointer select-none p-4 text-[10px] font-bold uppercase tracking-widest text-neutral-700 hover:text-neutral-500">
-          <span class="mr-2 group-open:rotate-90 transition-transform">▶</span>
-          Debug Console
+      <details class="section-panel slots-panel">
+        <summary>
+          <span>
+            <span class="eyebrow">Topology</span>
+            <strong>Plugin slots</strong>
+          </span>
+          <span class="summary-hint">Inspect</span>
         </summary>
-        <div id="debug"
-          class="p-4 border-t border-neutral-900 font-mono text-[11px] text-neutral-600 max-h-40 overflow-y-auto"></div>
+        <div id="slotsRow" class="slots-row"></div>
       </details>
 
+      <details class="debug-panel">
+        <summary>Diagnostics</summary>
+        <div id="debug"></div>
+      </details>
     </main>
   </div>
 
@@ -134,7 +115,5 @@
   <script defer src="/static/parse.js"></script>
   <script defer src="/static/render.js"></script>
   <script defer src="/static/app.js"></script>
-
 </body>
-
 </html>

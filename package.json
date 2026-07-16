@@ -1,10 +1,10 @@
 {
   "name": "namnesis-ui-gateway",
-  "version": "1.0.0",
-  "description": "<p align=\"left\">   <img src=\"web/static/img/logo.svg\" alt=\"Namnesis UI\" width=\"140\"/> </p>",
+  "version": "0.4.2",
+  "description": "Low-latency browser control surface and HTTP/SSE gateway for NAMNESIS and Stompbox.",
   "main": "tailwind.config.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "go test ./..."
   },
   "repository": {
     "type": "git",

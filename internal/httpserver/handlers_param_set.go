@@ -45,6 +45,10 @@ func (s *Server) handleParamSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.state != nil {
+		s.state.TriggerProgram("set-param")
+	}
+
 	// Return JSON ack
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{

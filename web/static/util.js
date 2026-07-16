@@ -21,7 +21,7 @@
     return s.replace(/\.?0+$/, '');
   };
 
-  // Minimal “unit guessing” (safe default). Later we can drive this from DumpConfig ValueFormat.
+  // Conservative unit inference used when Dump Config does not provide ValueFormat metadata.
   U.withUnit = function withUnit(paramName, rawValue) {
     if (typeof rawValue === 'string' && rawValue.startsWith('"')) {
       return rawValue.replace(/^"|"$/g, '');

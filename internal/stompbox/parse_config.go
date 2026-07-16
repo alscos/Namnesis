@@ -9,7 +9,7 @@ import (
 
 type DumpConfigParsed struct {
 	Plugins map[string]*PluginDef `json:"plugins"`
-	Order   []string              `json:"order,omitempty"` // optional stable order if you want
+	Order   []string              `json:"order,omitempty"` // Optional stable plugin order.
 }
 
 type PluginDef struct {
@@ -35,7 +35,7 @@ type ParamDef struct {
 	IsAdvanced       *bool             `json:"isAdvanced,omitempty"`
 	IsOutput         *bool             `json:"isOutput,omitempty"`
 	Description      string            `json:"description,omitempty"`
-	RawKV            map[string]string `json:"rawKV,omitempty"` // keeps unknown keys without losing info
+	RawKV            map[string]string `json:"rawKV,omitempty"` // Preserves unknown keys for diagnostics.
 }
 
 func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
@@ -43,7 +43,7 @@ func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 		Plugins: make(map[string]*PluginDef),
 	}
 
-	var currentPlugin string // used for recovery when lines omit the plugin name (NAMMulti case)
+	var currentPlugin string // Recovers malformed NAMMulti lines that omit the plugin name.
 
 	lines := strings.Split(raw, "\n")
 	for _, line := range lines {
@@ -76,7 +76,7 @@ func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 		case "ParameterConfig":
 			// ParameterConfig <Plugin> <Param> Type Knob MinValue ... Description "..."
 			//
-			// BUT: you have malformed lines like:
+			// Some NAMMulti dumps omit the plugin name:
 			// ParameterConfig  Gain Type Knob ...
 			// (plugin omitted) -> recover using currentPlugin, and treat first token after ParameterConfig as Param
 			if len(toks) < 3 {
@@ -100,7 +100,7 @@ func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 			}
 
 			if pname == "" || param == "" {
-				// can't safely attach
+				// The parameter cannot be associated safely.
 				continue
 			}
 
@@ -145,7 +145,7 @@ func ParseDumpConfig(raw string) (*DumpConfigParsed, error) {
 			p.FileTrees[param] = tree
 
 		case "EndConfig":
-			// end of plugin block (we keep currentPlugin as last plugin for recovery)
+			// Preserve currentPlugin for malformed parameter lines that follow.
 			continue
 
 		default:

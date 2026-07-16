@@ -26,7 +26,13 @@ type loadPresetRequest struct {
 }
 
 func (s *Server) handlePresetsRaw(w http.ResponseWriter, r *http.Request) {
-	out, err := s.sb.ListPresets()
+	var out string
+	var err error
+	if r.URL.Query().Get("fresh") == "1" || s.state == nil {
+		out, err = s.sb.ListPresets()
+	} else {
+		out, err = s.state.PresetsRaw()
+	}
 	if err != nil {
 		http.Error(w, "presets error: "+err.Error(), http.StatusBadGateway)
 		return
@@ -35,7 +41,13 @@ func (s *Server) handlePresetsRaw(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(out))
 }
 func (s *Server) handlePresetCurrent(w http.ResponseWriter, r *http.Request) {
-	out, err := s.sb.DumpProgram()
+	var out string
+	var err error
+	if s.state != nil {
+		out, err = s.state.ProgramRaw()
+	} else {
+		out, err = s.sb.DumpProgram()
+	}
 	if err != nil {
 		writeJSON(w, http.StatusOK, presetCurrentResponse{CurrentPreset: "", Error: err.Error()})
 		return
@@ -70,6 +82,8 @@ func (s *Server) handlePresetLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncProgram("load-preset")
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":   true,
@@ -94,6 +108,8 @@ func (s *Server) handlePresetSaveAs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncProgramAndPresets("save-preset-as")
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":     true,
@@ -109,7 +125,13 @@ func (s *Server) handlePresetSave(w http.ResponseWriter, r *http.Request) {
 
 	// If no name provided, save "current preset" (from DumpProgram parse)
 	if name == "" {
-		raw, err := s.sb.DumpProgram()
+		var raw string
+		var err error
+		if s.state != nil {
+			raw, err = s.state.ProgramRaw()
+		} else {
+			raw, err = s.sb.DumpProgram()
+		}
 		if err != nil {
 			http.Error(w, "DumpProgram failed: "+err.Error(), http.StatusBadGateway)
 			return
@@ -132,6 +154,8 @@ func (s *Server) handlePresetSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SavePreset failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+
+	s.syncProgramAndPresets("save-preset")
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -158,6 +182,8 @@ func (s *Server) handlePresetDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncPresets("delete-preset")
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":     true,
@@ -175,6 +201,8 @@ func (s *Server) handleLoadPreset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "loadpreset error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+
+	s.syncProgram("load-preset")
 
 	// Return OK; UI will refresh via /api/state
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

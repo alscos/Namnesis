@@ -22,10 +22,16 @@
     // --- LIVE vs RESEARCH ---
     refreshMode: localStorage.getItem("namnesis.refreshMode") || "live", // "live" | "research"
     systemPollTimer: null,
-    presetWatchTimer: null,
-    lastPresetSeen: null, // used later for midi-triggered preset sync
+    eventSource: null,
+    reconnectTimer: null,
     isRefreshingUI: false,
-    isCheckingPreset: false,
+    refreshQueued: false,
+    lastRevision: 0,
+    pendingEventRefresh: false,
+    pendingRefreshTimer: null,
+    activeMobileChain: localStorage.getItem("namnesis.mobileChain") || "Input",
+    libraryPickers: { nam: null, cab: null },
+    filePluginInstances: { nam: 'NAM', cab: 'Cabinet' },
     // --- PARAM EDIT LOCK (prevents LIVE refresh from overwriting input) ---
     // keys: `${plugin}::${param}`
     editing: new Set(),
@@ -146,7 +152,7 @@
       Level: ['Volume'],
       Master: ['Volume'],
       Input: ['Gain'],
-      // (optional) keep a fallback preferred for EQ-7 if you ever render it in pills
+      // Preferred EQ ordering for compact plugin cards.
       'EQ-7': ['100', '200', '400', '800', '1.6k', '3.2k', '6.4k', 'Vol'],
       'BEQ-7': ['50', '120', '400', '800', '1.6k', '4.5k', '10.0k', 'Vol'],
     };
@@ -183,7 +189,7 @@
         continue;
       }
 
-      // keep previous allowlist for standard knobs
+      // Preserve the standard writable-parameter allowlist.
       if (!WRITABLE_NUMERIC_PARAMS.has(k)) continue;
       extraKnobs.push(k);
     }
@@ -200,6 +206,28 @@
 
     // Hard cap to keep pills compact
     return out.slice(0, 8);
+  }
+
+  function findRuntimeFileParam(program, resolved, baseType, paramName) {
+    const keys = new Set([
+      ...Object.keys(program?.params || {}),
+      ...Object.keys(resolved || {}),
+    ]);
+    const candidates = Array.from(keys)
+      .filter(name => name === baseType || name.startsWith(baseType + '_'))
+      .sort((a, b) => {
+        if (a === baseType) return -1;
+        if (b === baseType) return 1;
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
+
+    for (const plugin of candidates) {
+      const live = String(program?.params?.[plugin]?.[paramName] || '').trim();
+      if (live) return { plugin, value: live };
+      const recovered = String(resolved?.[plugin]?.[paramName] || '').trim();
+      if (recovered) return { plugin, value: recovered };
+    }
+    return { plugin: candidates[0] || baseType, value: '' };
   }
 
   function isBooleanParam(meta, paramName) {
@@ -249,21 +277,16 @@
   }
 
   async function refreshAfterPresetChange(expectedName) {
-    for (let i = 0; i < 10; i++) {
-      const program = await refreshUI();
-      if (program && program.preset === expectedName) return;
-      await new Promise(r => setTimeout(r, 150));
+    const program = await refreshUI();
+    if (program?.preset !== expectedName) {
+      elStatus.textContent = 'syncing';
     }
-    elStatus.textContent = 'loaded (UI not yet confirmed)';
   }
 
   async function refreshAfterFileParamChange(plugin, param, expectedValue) {
-    for (let i = 0; i < 12; i++) {
-      const program = await refreshUI();
-      const got = program?.params?.[plugin]?.[param];
-      if (got === expectedValue) return;
-      await new Promise(r => setTimeout(r, 120));
-    }
+    const program = await refreshUI();
+    const got = program?.params?.[plugin]?.[param];
+    if (got !== expectedValue) elStatus.textContent = 'syncing';
   }
 
   async function onPresetChanged(e) {
@@ -540,28 +563,6 @@
       const v = parseFloat(slider.value);
       await onCommit(v);
     };
-    // LIVE / RESEARCH toggle
-    const refreshToggle = document.getElementById("refreshModeToggle");
-    const manualBtn = document.getElementById("manualRefreshBtn");
-
-    if (refreshToggle) {
-      refreshToggle.addEventListener("change", async (e) => {
-        const on = !!e.target.checked;
-        await setRefreshMode(on ? "live" : "research");
-      });
-    }
-
-    if (manualBtn) {
-      manualBtn.addEventListener("click", async () => {
-        await refreshUI();
-        await refreshSystemStrip();
-      });
-    }
-
-    // Apply mode on startup
-    applyRefreshModeUI();
-    if (state.refreshMode === "live") startLivePolling();
-
     // commit only on release / confirm
     slider.addEventListener('change', () => commit());
     slider.addEventListener('pointerup', () => commit());
@@ -598,7 +599,6 @@
         state.core.inputGain = restore;
         await A.setNumericParamQueued('Input', 'Gain', restore);
       }
-      await refreshUI();
     }));
 
     inputCard.appendChild(buildCommitFaderRow('Gain', state.core.inputGain ?? 0, metaGain, async (v) => {
@@ -606,7 +606,6 @@
       state.core.inputGain = v;
       state.core.lastInputGain = v;
       await A.setNumericParamQueued('Input', 'Gain', v);
-      await refreshUI();
     }));
 
     // --- EQ-7 (CORE) ---
@@ -655,7 +654,6 @@
         state.core.masterVolume = restore;
         await A.setNumericParamQueued('Master', 'Volume', restore);
       }
-      await refreshUI();
     }));
 
     masterCard.appendChild(buildCommitFaderRow('Volume', state.core.masterVolume ?? 0, metaVol, async (v) => {
@@ -663,78 +661,11 @@
       state.core.masterVolume = v;
       state.core.lastMasterVolume = v;
       await A.setNumericParamQueued('Master', 'Volume', v);
-      await refreshUI();
     }));
 
     el.appendChild(inputCard);
     el.appendChild(eqCard);
     el.appendChild(masterCard);
-  }
-
-  async function fetchCurrentPresetName() {
-    // Preferred (future): lightweight endpoint
-    try {
-      const r = await fetch("/api/preset/current", { cache: "no-store" });
-      if (r.ok) {
-        const j = await r.json();
-        // accept a few possible keys to be resilient
-        return j.currentPreset || j.preset || j.name || "";
-      }
-    } catch (_) { }
-
-    // Fallback (beta): ask /api/state and extract preset
-    try {
-      const r = await fetch("/api/state", { cache: "no-store" });
-      if (!r.ok) return "";
-      const j = await r.json();
-
-      // Try multiple shapes:
-      // - j.currentPreset
-      // - j.preset.current
-      // - j.program.currentPreset
-      // Adjust once you confirm actual payload.
-      return (
-        j.currentPreset ||
-        j.preset?.current ||
-        j.program?.currentPreset ||
-        j.program?.preset ||
-        ""
-      );
-    } catch (_) {
-      return "";
-    }
-  }
-
-  async function checkPresetChangedLive() {
-    if (state.refreshMode !== "live") return;
-    if (state.isCheckingPreset) return;
-    state.isCheckingPreset = true;
-    try {
-      const p = await fetchCurrentPresetName();
-      if (!p) return;
-
-      if (state.lastPresetSeen === null) {
-        state.lastPresetSeen = p;
-        return;
-      }
-
-      if (p !== state.lastPresetSeen) {
-        state.lastPresetSeen = p;
-
-        // Update dropdown without triggering onPresetChanged
-        const elPreset = document.getElementById("presetSelect");
-        if (elPreset) {
-          state.isProgrammaticPresetUpdate = true;
-          elPreset.value = p;
-          state.isProgrammaticPresetUpdate = false;
-        }
-
-        // Full UI refresh (chains/params reflect new preset)
-        await refreshUI();
-      }
-    } finally {
-      state.isCheckingPreset = false;
-    }
   }
 
   async function refreshSystemStrip() {
@@ -750,7 +681,7 @@
         state = "FAIL"; cls = "text-rose-500";
       } else if (
         s.jack?.xruns_delta > 0 ||
-        s.routing?.ok === false ||
+        (s.routing?.probe_ok === true && s.routing?.ok === false) ||
         s.midi?.connected === false
       ) {
         state = "WARN"; cls = "text-amber-400";
@@ -807,7 +738,7 @@
       // Audio IF
       const line = pickActiveAsoundCardLine(s.audioif?.asound_cards, s.jack?.device);
       const ifName = line?.match(/\]:\s(.+)/)?.[1] || "—";
-      // keep your current "first token" behavior, but now it's the active card
+      // Use the first token of the active ALSA card name for the compact status label.
       const short = (ifName === "—") ? "—" : ifName.split(" ")[0];
       document.getElementById("sysIF").textContent = `IF ${short}`;
 
@@ -816,25 +747,115 @@
       document.getElementById("sysReady").textContent = "FAIL";
     }
   }
+  function setStreamStatus(kind, text) {
+    const dot = document.getElementById("streamDot");
+    const label = document.getElementById("streamStatus");
+    if (label) label.textContent = text;
+    if (dot) dot.dataset.state = kind;
+  }
+
   function stopLivePolling() {
     if (state.systemPollTimer) {
       clearInterval(state.systemPollTimer);
       state.systemPollTimer = null;
     }
-    if (state.presetWatchTimer) {
-      clearInterval(state.presetWatchTimer);
-      state.presetWatchTimer = null;
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
     }
+    if (state.eventSource) {
+      state.eventSource.close();
+      state.eventSource = null;
+    }
+    setStreamStatus("manual", "MANUAL");
   }
+
   function applyRefreshModeUI() {
     const isLive = state.refreshMode === "live";
     const el = document.getElementById("refreshModeToggle");
     const label = document.getElementById("refreshModeLabel");
     const btn = document.getElementById("manualRefreshBtn");
 
-    if (label) label.textContent = isLive ? "LIVE" : "RESEARCH";
+    if (label) label.textContent = isLive ? "FOLLOW" : "MANUAL";
     if (btn) btn.classList.toggle("hidden", isLive);
     if (el) el.checked = isLive;
+  }
+
+  function scheduleEventRefresh() {
+    if (state.editing.size > 0) {
+      state.pendingEventRefresh = true;
+      if (!state.pendingRefreshTimer) {
+        state.pendingRefreshTimer = setTimeout(() => {
+          state.pendingRefreshTimer = null;
+          if (state.pendingEventRefresh) scheduleEventRefresh();
+        }, 120);
+      }
+      return;
+    }
+    state.pendingEventRefresh = false;
+    refreshUI();
+  }
+
+  function applyMobileChain() {
+    if (!elLanes) return;
+    elLanes.dataset.activeChain = state.activeMobileChain;
+    document.querySelectorAll('[data-chain-tab]').forEach(button => {
+      const active = button.dataset.chainTab === state.activeMobileChain;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
+  function bindMobileChainTabs() {
+    document.querySelectorAll('[data-chain-tab]').forEach(button => {
+      button.addEventListener('click', () => {
+        state.activeMobileChain = button.dataset.chainTab || 'Input';
+        localStorage.setItem('namnesis.mobileChain', state.activeMobileChain);
+        applyMobileChain();
+      });
+    });
+    applyMobileChain();
+  }
+
+  function connectEventStream() {
+    if (state.refreshMode !== "live" || state.eventSource) return;
+    setStreamStatus("connecting", "CONNECTING");
+
+    state.eventSource = A.openEvents({
+      open: () => setStreamStatus("live", "LIVE"),
+      snapshot: payload => {
+        const revision = Number(payload?.meta?.revision || 0);
+        if (revision > state.lastRevision) state.lastRevision = revision;
+        scheduleEventRefresh();
+      },
+      program: payload => {
+        const revision = Number(payload?.revision || 0);
+        if (revision <= state.lastRevision) return;
+        state.lastRevision = revision;
+        scheduleEventRefresh();
+      },
+      config: payload => {
+        state.lastRevision = Math.max(state.lastRevision, Number(payload?.revision || 0));
+        scheduleEventRefresh();
+      },
+      presets: payload => {
+        state.lastRevision = Math.max(state.lastRevision, Number(payload?.revision || 0));
+        scheduleEventRefresh();
+      },
+      disconnect: () => {
+        if (state.refreshMode !== "live") return;
+        setStreamStatus("offline", "RECONNECTING");
+        state.eventSource?.close();
+        state.eventSource = null;
+        if (!state.reconnectTimer) {
+          state.reconnectTimer = setTimeout(() => {
+            state.reconnectTimer = null;
+            connectEventStream();
+          }, 1200);
+        }
+      },
+      error: err => console.error("event stream error", err),
+    });
   }
 
   async function setRefreshMode(mode) {
@@ -842,8 +863,6 @@
     localStorage.setItem("namnesis.refreshMode", state.refreshMode);
 
     if (state.refreshMode === "live") {
-      // Prime watcher so first tick doesn't force refresh
-      state.lastPresetSeen = await fetchCurrentPresetName() || state.lastPresetSeen;
       await refreshSystemStrip();
       startLivePolling();
     } else {
@@ -855,29 +874,33 @@
 
   function startLivePolling() {
     stopLivePolling();
-    state.systemPollTimer = setInterval(() => {
-      refreshSystemStrip();
-    }, 750);
-    // Watch preset changes (e.g. MIDI) and refresh UI when it changes
-    state.presetWatchTimer = setInterval(() => {
-      checkPresetChangedLive();
-    }, 300);
+    refreshSystemStrip();
+    state.systemPollTimer = setInterval(refreshSystemStrip, 1000);
+    connectEventStream();
   }
   async function refreshUI() {
-    if (state.isRefreshingUI) return;
+    if (state.isRefreshingUI) {
+      state.refreshQueued = true;
+      return;
+    }
     state.isRefreshingUI = true;
     try {
-      const { res, data } = await A.fetchState();
+      const { res, data, clientDurationMs } = await A.fetchState();
 
-      elNow.textContent = data?.meta?.now || '(no time)';
-      elStatus.textContent = res.ok ? 'ok' : ('http ' + res.status);
+      const connected = !!data?.meta?.connected;
+      const stale = !!(data?.program?.stale || data?.dumpConfig?.stale || data?.presets?.stale);
+      elNow.textContent = `${Math.round(clientDurationMs || 0)} ms`;
+      elStatus.textContent = connected ? 'synced' : (stale ? 'stale' : (res.ok ? 'offline' : ('http ' + res.status)));
+      elStatus.dataset.state = connected ? 'ok' : (stale ? 'stale' : 'error');
+      state.lastRevision = Math.max(state.lastRevision, Number(data?.meta?.revision || 0));
 
-      const presetList = data?.presets?.error ? [] : P.parsePresets(data?.presets?.raw || '');
-      const pluginMetaMap = data?.dumpConfig?.error ? {} : P.parseDumpConfig(data?.dumpConfig?.raw || '');
-      const trees = data?.dumpConfig?.error ? {} : P.parseFileTrees(data?.dumpConfig?.raw || '');
-      const paramMetaMap = data?.dumpConfig?.error ? {} : P.parseParameterConfig(data?.dumpConfig?.raw || '');
-
-      const program = data?.program?.error ? P.parseDumpProgram('') : P.parseDumpProgram(data?.program?.raw || '');
+      // A transient transport error can coexist with a valid last-known payload.
+      // Render that payload and expose the stale status instead of blanking the rig.
+      const presetList = P.parsePresets(data?.presets?.raw || '');
+      const pluginMetaMap = P.parseDumpConfig(data?.dumpConfig?.raw || '');
+      const trees = P.parseFileTrees(data?.dumpConfig?.raw || '');
+      const paramMetaMap = P.parseParameterConfig(data?.dumpConfig?.raw || '');
+      const program = P.parseDumpProgram(data?.program?.raw || '');
 
       // ---- AVAILABLE PLUGINS FOR "+ Add plugin..." DROPDOWN ----
       // Source of truth MUST be DumpConfig (PluginConfig ... IsUserSelectable ...)
@@ -920,24 +943,43 @@
 
       setPresetDropdown(presetList, program.preset);
 
-      const namCurrent = program?.params?.NAM?.Model ?? null;
-      const cabCurrent = program?.params?.Cabinet?.Impulse ?? null;
+      const resolvedParams = data?.program?.resolved || {};
+      const namSelection = findRuntimeFileParam(program, resolvedParams, 'NAM', 'Model');
+      const cabSelection = findRuntimeFileParam(program, resolvedParams, 'Cabinet', 'Impulse');
       const namOpts = trees['NAM.Model'] || [];
       const cabOpts = trees['Cabinet.Impulse'] || [];
 
-      elModelSelectors.innerHTML = '';
-      elModelSelectors.appendChild(
-        R.buildDropdown('NAM Model', namOpts, namCurrent, async (v) => {
-          await A.setFileParam('NAM', 'Model', v);
-          await refreshAfterFileParamChange('NAM', 'Model', v);
-        }, state)
-      );
-      elModelSelectors.appendChild(
-        R.buildDropdown('Cab IR', cabOpts, cabCurrent, async (v) => {
-          await A.setFileParam('Cabinet', 'Impulse', v);
-          await refreshAfterFileParamChange('Cabinet', 'Impulse', v);
-        }, state)
-      );
+      state.filePluginInstances.nam = namSelection.plugin;
+      state.filePluginInstances.cab = cabSelection.plugin;
+
+      if (!state.libraryPickers.nam || !state.libraryPickers.cab) {
+        elModelSelectors.textContent = '';
+        state.libraryPickers.nam = R.createLibraryPicker({
+          label: 'NAM Model',
+          options: namOpts,
+          selectedValue: namSelection.value,
+          onChange: async v => {
+            const plugin = state.filePluginInstances.nam || 'NAM';
+            await A.setFileParam(plugin, 'Model', v);
+            await refreshAfterFileParamChange(plugin, 'Model', v);
+          },
+        });
+        state.libraryPickers.cab = R.createLibraryPicker({
+          label: 'Cab IR',
+          options: cabOpts,
+          selectedValue: cabSelection.value,
+          onChange: async v => {
+            const plugin = state.filePluginInstances.cab || 'Cabinet';
+            await A.setFileParam(plugin, 'Impulse', v);
+            await refreshAfterFileParamChange(plugin, 'Impulse', v);
+          },
+        });
+        elModelSelectors.appendChild(state.libraryPickers.nam.el);
+        elModelSelectors.appendChild(state.libraryPickers.cab.el);
+      } else {
+        state.libraryPickers.nam.update(namOpts, namSelection.value);
+        state.libraryPickers.cab.update(cabOpts, cabSelection.value);
+      }
 
       renderCore(elCore, program, paramMetaMap);
       // ---- ADD PLUGIN HANDLER (for lane dropdown) ----
@@ -964,18 +1006,18 @@
           WRITABLE_NUMERIC_PARAMS,
           onParamCommit: (pl, pa, val) => A.setNumericParamQueued(pl, pa, val),
           onPluginToggleResync: () => refreshUI(),
-          // NEW: editing lock + helpers for inline numeric editor
+          // Shared edit state prevents live updates from overwriting active input.
           uiState: state,
-          // NEW: chain context so render.js can enable/disable arrows
+          // Chain context controls move-action availability.
           chainName: ctx?.chainName,
           chainIndex: ctx?.index,
           chainLength: ctx?.chainItems?.length || 0,
 
           onUnload: async ({ chainName, pluginName, index }) => {
-            // Get latest chain from the *current* program object you render from.
+            // Read the latest chain from the current authoritative program state.
             const items = (program?.chains?.[chainName] || []).slice();
 
-            // Remove by position first (safest), fallback by name
+            // Prefer positional removal; fall back to instance-name removal.
             let next = items.slice();
             if (Number.isFinite(index) && index >= 0 && index < next.length) {
               next.splice(index, 1);
@@ -985,7 +1027,7 @@
 
             await A.setChain(chainName, next);
 
-            // Optional best-effort cleanup
+            // Release the detached instance on a best-effort basis.
             try { await A.releasePlugin(pluginName); } catch (e) { console.warn("ReleasePlugin failed:", e); }
 
             await refreshUI();
@@ -1032,13 +1074,17 @@
           onAddPlugin: handleAddPlugin
         }
       );
+      applyMobileChain();
       R.renderSlotsFromDumpProgram(elSlots, program);
 
       const dbg = [];
-      dbg.push('Durations:');
-      dbg.push('  dumpConfig: ' + (data?.dumpConfig?.duration || 'n/a'));
-      dbg.push('  program:    ' + (data?.program?.duration || 'n/a'));
-      dbg.push('  presets:    ' + (data?.presets?.duration || 'n/a'));
+      dbg.push('Cache / TCP timings:');
+      dbg.push('  HTTP cache:  ' + Math.round(clientDurationMs || 0) + ' ms');
+      dbg.push('  dumpConfig:  ' + (data?.dumpConfig?.duration || 'n/a') + ' · age ' + (data?.dumpConfig?.ageMs ?? 'n/a') + ' ms');
+      dbg.push('  program:     ' + (data?.program?.duration || 'n/a') + ' · age ' + (data?.program?.ageMs ?? 'n/a') + ' ms');
+      dbg.push('  presets:     ' + (data?.presets?.duration || 'n/a') + ' · age ' + (data?.presets?.ageMs ?? 'n/a') + ' ms');
+      dbg.push('  revision:    ' + (data?.meta?.revision ?? 'n/a'));
+      dbg.push('  last reason: ' + (data?.meta?.lastReason || 'n/a'));
       elDebug.innerHTML = '<pre>' + dbg.join('\n') + '</pre>';
 
       return program;
@@ -1047,6 +1093,10 @@
       elDebug.innerHTML = '<pre>' + String(e) + '</pre>';
     } finally {
       state.isRefreshingUI = false;
+      if (state.refreshQueued) {
+        state.refreshQueued = false;
+        queueMicrotask(refreshUI);
+      }
     }
   }
   // ---- wire LIVE/RESEARCH controls once ----
@@ -1062,12 +1112,15 @@
 
   if (manualBtn) {
     manualBtn.addEventListener("click", async () => {
+      elStatus.textContent = "refreshing";
+      await A.refreshState("all");
       await refreshUI();
       await refreshSystemStrip();
     });
   }
 
   // ---- startup ----
+  bindMobileChainTabs();
   applyRefreshModeUI();
   refreshUI();
   if (state.refreshMode === "live") startLivePolling();

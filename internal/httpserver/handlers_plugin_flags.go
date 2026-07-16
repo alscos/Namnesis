@@ -37,13 +37,15 @@ func (s *Server) handlePluginEnabled(w http.ResponseWriter, r *http.Request) {
 		val = "1"
 	}
 
-	// Use your existing Stompbox client abstraction (same style as handleSetFileParam)
+	// Apply the enabled state through the shared Stompbox client.
 	if err := s.sb.SetParam(plugin, "Enabled", val); err != nil {
 		http.Error(w, "setparam error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// Return JSON in the same style as your other handlers
+	s.syncProgram("plugin-enabled")
+
+	// Return a structured acknowledgement.
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":      true,
@@ -63,8 +65,14 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1) Validate against DumpConfig-parsed (authoritative config metadata)
-	raw, err := s.sb.DumpConfig()
+	// Validate against authoritative Dump Config metadata.
+	var raw string
+	var err error
+	if s.state != nil {
+		raw, err = s.state.ConfigRaw()
+	} else {
+		raw, err = s.sb.DumpConfig()
+	}
 	if err != nil {
 		http.Error(w, "dumpconfig error: "+err.Error(), http.StatusBadGateway)
 		return
@@ -75,7 +83,7 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// IMPORTANT: DumpConfig is keyed by *base plugin type* (e.g. "ConvoReverb"),
+	// Dump Config is keyed by base plugin type (for example, "ConvoReverb"),
 	// while runtime params can reference instances (e.g. "ConvoReverb_2").
 	pluginInstance := req.Plugin
 	base := regexp.MustCompile(`_\d+$`).ReplaceAllString(pluginInstance, "")
@@ -107,13 +115,18 @@ func (s *Server) handleSetFileParam(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2) Apply to running Stompbox (apply to the *instance*, not the base type)
+	// Apply the value to the runtime plugin instance.
 	if err := s.sb.SetParam(pluginInstance, req.Param, req.Value); err != nil {
 		http.Error(w, "setparam error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	// 3) Return OK
+	if s.state != nil {
+		s.state.SetProgramParamOverride(pluginInstance, req.Param, req.Value)
+	}
+	s.syncProgram("file-param")
+
+	// Return a structured acknowledgement.
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":     true,

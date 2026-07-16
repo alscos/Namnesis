@@ -42,7 +42,9 @@ type Snapshot struct {
 }
 
 type JackInfo struct {
-	Running bool `json:"running"`
+	Running       bool `json:"running"`
+	ServiceActive bool `json:"service_active"`
+	Reachable     bool `json:"reachable"`
 
 	Driver  string `json:"driver"`
 	Device  string `json:"device"`
@@ -60,11 +62,11 @@ type JackInfo struct {
 }
 
 type RoutingInfo struct {
-	// probe_ok tells whether jack_lsp ran successfully (i.e. we could query JACK graph).
+	// ProbeOK reports whether jack_lsp could query the JACK graph.
 	ProbeOK    bool   `json:"probe_ok"`
 	ProbeError string `json:"probe_error,omitempty"`
 
-	// ok tells whether configured expectations are satisfied (only meaningful when ProbeOK=true).
+	// OK reports whether configured expectations are satisfied; it is meaningful only when ProbeOK is true.
 	OK      bool     `json:"ok"`
 	Missing []string `json:"missing,omitempty"`
 
@@ -282,12 +284,13 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 		snap.Errors = append(snap.Errors, c.cfgErrMsg)
 	}
 
+	serviceActive := false
+
 	/* JACK */
 	if c.cfg.Jack.Enabled {
-		// NOTE: Do not conflate "systemd unit active" with "JACK is reachable".
-		// We keep a systemd check only as a fallback signal when we cannot probe JACK.
-		serviceActive := false
-		jackCfg, err := parseJackdUnit(c.cfg.Jack.UnitPath)
+		// Service activity and JACK graph reachability are independent signals.
+		// The systemd state is retained as a fallback when the graph cannot be queried.
+		jackCfg, err := parseJackdService(ctx, c.cfg.Jack.ServiceName, c.cfg.Jack.UnitPath)
 		if err != nil {
 			snap.Errors = append(snap.Errors, "jack unit parse: "+err.Error())
 		} else {
@@ -305,7 +308,7 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 
 		if c.cfg.Jack.ServiceName != "" {
 			serviceActive = isServiceActive(ctx, c.cfg.Jack.ServiceName)
-			// provisional; may be overridden by a real probe below
+			snap.Jack.ServiceActive = serviceActive
 			snap.Jack.Running = serviceActive
 		}
 
@@ -327,12 +330,12 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 		if probeErr != nil {
 			snap.Routing.ProbeOK = false
 			snap.Routing.ProbeError = probeErr.Error()
-			// Important: this is a probe failure, not "routing is wrong".
-			// We keep OK=false because expectations cannot be evaluated without a graph.
+			// A probe failure does not imply invalid routing. Expectations cannot be evaluated without a graph.
 			snap.Routing.OK = false
 			snap.Errors = append(snap.Errors, "routing probe: "+probeErr.Error())
 		} else {
 			snap.Routing.ProbeOK = true
+			snap.Jack.Reachable = true
 			snap.Routing.Ports = ports
 			snap.Routing.Edges = edges
 			snap.Routing.Summary = summary
@@ -340,15 +343,15 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 			snap.Routing.OK = ok
 		}
 
-		// If routing probe is enabled, it is the best "JACK running" signal:
-		// - ProbeOK=true means jack_lsp connected to the server and we can query the graph.
-		// - ProbeOK=false means JACK is not reachable *from this process context* (env/user/runtime).
+		// A failed client probe means the graph is not visible from this process
+		// context; it does not prove that the JACK daemon is down. Preserve the
+		// independent systemd signal and expose reachability separately.
 		if c.cfg.Jack.Enabled {
-			snap.Jack.Running = snap.Routing.ProbeOK
+			snap.Jack.Running = serviceActive || snap.Routing.ProbeOK
 		}
 	}
 	// If routing is disabled, still try to determine JACK reachability via jack_lsp.
-	// This keeps jack.running meaningful even when you don't want routing expectations.
+	// This keeps jack.running meaningful when routing expectations are disabled.
 	if c.cfg.Jack.Enabled && !c.cfg.Routing.Enabled {
 		cmd := c.cfg.Routing.JackLspCmd
 		if len(cmd) == 0 {
@@ -356,9 +359,10 @@ func (c *Collector) Snapshot(ctx context.Context) Snapshot {
 		}
 		_, err := runLines(ctx, 800*time.Millisecond, cmd, c.cfg.Routing.Env)
 		if err == nil {
+			snap.Jack.Reachable = true
 			snap.Jack.Running = true
 		} else {
-			// keep whatever fallback (systemd) decided; do not spam Errors unless you want it
+			// Preserve the systemd fallback without duplicating the routing probe error.
 		}
 	}
 	/* MIDI */
@@ -474,6 +478,32 @@ type jackUnitCfg struct {
 	RT      bool
 }
 
+func parseJackdService(ctx context.Context, serviceName, unitPath string) (jackUnitCfg, error) {
+	if strings.TrimSpace(serviceName) != "" {
+		out, err := run(ctx, 900*time.Millisecond, "systemctl", nil, "show", serviceName, "--property=ExecStart", "--value")
+		if err == nil {
+			if args := systemdExecArgv(out); len(args) > 0 {
+				return parseJackdArgs(args)
+			}
+		}
+	}
+	return parseJackdUnit(unitPath)
+}
+
+func systemdExecArgv(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if i := strings.Index(value, "argv[]="); i >= 0 {
+		value = value[i+len("argv[]="):]
+		if j := strings.Index(value, " ;"); j >= 0 {
+			value = value[:j]
+		}
+	}
+	return strings.Fields(strings.TrimSpace(value))
+}
+
 func parseJackdUnit(path string) (jackUnitCfg, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -493,8 +523,13 @@ func parseJackdUnit(path string) (jackUnitCfg, error) {
 	if execLine == "" {
 		return jackUnitCfg{}, errors.New("ExecStart not found")
 	}
+	return parseJackdArgs(strings.Fields(execLine))
+}
 
-	args := strings.Fields(execLine)
+func parseJackdArgs(args []string) (jackUnitCfg, error) {
+	if len(args) == 0 {
+		return jackUnitCfg{}, errors.New("empty JACK ExecStart")
+	}
 
 	cfg := jackUnitCfg{
 		Driver: "alsa",
@@ -546,8 +581,12 @@ func contains(xs []string, s string) bool {
 
 /* ---------------- Probing helpers ---------------- */
 
+func systemctlIsActiveArgs(name string) []string {
+	return []string{"is-active", name}
+}
+
 func isServiceActive(ctx context.Context, name string) bool {
-	out, err := run(ctx, 900*time.Millisecond, "systemctl", nil, name, "is-active")
+	out, err := run(ctx, 900*time.Millisecond, "systemctl", nil, systemctlIsActiveArgs(name)...)
 	if err != nil {
 		return false
 	}
@@ -591,7 +630,7 @@ func countXruns(ctx context.Context, unit string, lines int, xrunRegex string) (
 // (e.g. system:capture_2) but in practice JACK graphs may use capture_1,
 // or different indices depending on the interface or patching.
 //
-// We keep the original regex first, then append relaxed variants when we detect
+// The original regex is evaluated first, followed by conservative relaxed variants for
 // very common rigid patterns.
 func compileRegexWithCommonRelaxations(pattern string) ([]*regexp.Regexp, error) {
 	pattern = strings.TrimSpace(pattern)
@@ -605,11 +644,11 @@ func compileRegexWithCommonRelaxations(pattern string) ([]*regexp.Regexp, error)
 	// If user hardcoded a specific capture/playback port, add a relaxed variant
 	// that accepts any index.
 	//
-	// NOTE: this is intentionally conservative: we only expand exact substrings
+	// Relaxation is intentionally limited to exact substrings
 	// "system:capture_1/2" and "system:playback_1/2" because those are the common
 	// cases observed in NAMNESIS setups.
 	relax := func(s string) string {
-		// Avoid double-expanding if the user already uses a capture/playback class.
+		// Avoid expanding expressions that already accept multiple capture or playback ports.
 		if strings.Contains(s, "system:capture_[") || strings.Contains(s, "system:playback_[") {
 			return s
 		}

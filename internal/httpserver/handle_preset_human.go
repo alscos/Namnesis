@@ -9,7 +9,13 @@ import (
 )
 
 func (s *Server) handlePresetHuman(w http.ResponseWriter, r *http.Request) {
-	raw, err := s.sb.DumpProgram()
+	var raw string
+	var err error
+	if s.state != nil {
+		raw, err = s.state.ProgramRaw()
+	} else {
+		raw, err = s.sb.DumpProgram()
+	}
 	if err != nil {
 		http.Error(w, "program error: "+err.Error(), http.StatusBadGateway)
 		return
