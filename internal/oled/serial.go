@@ -197,7 +197,7 @@ func formatOLEDLines(num, name, amp, fx, stomps string) string {
 //	7  Level
 //	8  Fuzz_2
 //
-//	9  Phaser_2
+//	9  Phase90Script
 //	10 Chorus_2
 //	11 Tremolo_2
 //	12 Vibrato_2
@@ -208,7 +208,7 @@ func StompsFromDumpProgram(raw string) string {
 	order := []string{
 		"Boost_2", "Screamer_2", "Delay_2", "ConvoReverb_2",
 		"Compressor_2", "NoiseGate_2", "Level", "Fuzz_2",
-		"Phaser_2", "Chorus_2", "Tremolo_2", "Vibrato_2",
+		"Phase90Script", "Chorus_2", "Tremolo_2", "Vibrato_2",
 	}
 
 	wanted := make(map[string]bool, len(order))
