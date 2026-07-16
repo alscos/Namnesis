@@ -130,3 +130,30 @@ The Stompbox control protocol has no authentication or encryption. Do not expose
 ## License and attribution
 
 GPL-3.0-or-later. Stompbox and its DSP architecture are the work of Mike Oliphant and remain separate from this gateway.
+
+
+## Web interface
+
+<table>
+  <tr>
+    <td width="72%">
+      <img
+        src=".github/assets/namnesis-ui-desktop.png"
+        alt="NAMNESIS web interface on desktop"
+        width="100%"
+      >
+    </td>
+    <td width="28%">
+      <img
+        src=".github/assets/namnesis-ui-mobile.png"
+        alt="NAMNESIS responsive web interface on mobile"
+        width="100%"
+      >
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Desktop control surface</sub></td>
+    <td align="center"><sub>Responsive mobile layout</sub></td>
+  </tr>
+</table>
+
