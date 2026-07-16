@@ -1,211 +1,132 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 
 <p align="left">
-  <img src="web/static/img/logo.svg" alt="Namnesis UI" width="140"/>
+  <img src="web/static/img/logo.svg" alt="NAMNESIS UI" width="140"/>
 </p>
 
-# Namnesis UI Gateway
+# NAMNESIS UI Gateway
 
-Namnesis UI Gateway is a thin HTTP and Web UI layer built on top of [Stompbox](https://github.com/mikeoliphant/stompbox), the open-source Neural Amp Modeler host created by Mike Oliphant.
+NAMNESIS UI Gateway is the browser control plane for the NAMNESIS dedicated Neural Amp Modeler instrument. It translates HTTP requests into the textual Stompbox TCP control protocol and presents the current amplifier, cabinet, effects, preset and host status as a touch-friendly control surface.
 
-It provides a browser-based control surface and stateless HTTP API for interacting with Stompbox through its TCP control protocol.
+It does **not** process audio and it does **not** own DSP state. Stompbox remains authoritative. The gateway keeps only an ephemeral, read-only mirror of Stompbox state so that every observer can share one synchronized control stream.
 
-It does not modify or replace Stompbox.
+## v0.4.2 architecture
 
-Full credit for the audio engine, DSP architecture, and NAM integration belongs to Mike Oliphant and the Stompbox project.
+```text
+                         ┌──────── Browser / phone ────────┐
+                         │  cache reads + SSE state events  │
+                         └──────────────┬───────────────────┘
+                                        │ HTTP/SSE
+                              ┌─────────▼─────────┐
+                              │ UI Gateway v0.4.2 │
+                              │ observer cache    │
+                              │ command serializer│
+                              └──────┬───────┬────┘
+                                     │       └──── OLED / diagnostics
+                          one serialized TCP stream
+                                     │
+                              ┌──────▼──────┐
+                              │  Stompbox   │  ← sole DSP authority
+                              └──────┬──────┘
+                                     │ JACK realtime graph
+```
 
+The previous interface rebuilt every page state by issuing `Dump Config`, `Dump Program` and `List Presets` repeatedly. LIVE mode and the OLED also requested their own `Dump Program` snapshots. v0.4 replaces that fan-out with:
 
-Please refer to the Stompbox repository for installation, DSP details, and audio engine documentation.
+- one shared Stompbox observer cache;
+- one serialized TCP control path;
+- `Dump Config` caching because plugin metadata is effectively static;
+- a configurable `Dump Program` observer loop (250 ms by default);
+- Server-Sent Events (SSE) only when the authoritative payload changes;
+- immediate cache synchronization after preset, model, IR, plugin and chain mutations;
+- stale-while-error behavior so a transient control failure does not erase the working UI.
 
+## Responsiveness model
 
-## What This Project Is
+- `GET /api/state` is cache-only and performs no Stompbox TCP request.
+- Browser refreshes are pushed through `/api/events`; no 300 ms browser polling loop remains.
+- Changes made in this UI use one command and, where required, one authoritative `Dump Program` synchronization.
+- Changes arriving from MIDI or another Stompbox client are detected within the configured program poll interval plus the duration of one `Dump Program` response.
 
-Namnesis UI Gateway provides:
+The default target for externally initiated changes is therefore approximately **250 ms + one program-dump duration**, rather than several complete three-command refresh cycles. The exact result must be measured on the physical NAMNESIS host.
 
-- A stateless HTTP API
-- A browser-based control interface
-- A strict implementation of the Stompbox TCP control protocol (CRLF-based)
-- Multi-line dump parsing (`DumpConfig`, `DumpProgram`)
-- Optional system observability (JACK, routing, MIDI, XRUNs)
+## UI capabilities
 
-It acts strictly as:
+- Preset load, save, save-as and delete
+- NAM model, cabinet IR and convolution reverb selection
+- Input gain, master and plugin parameter editing
+- Plugin enable/disable
+- Chain reordering and plugin release
+- Responsive desktop, tablet and phone layouts
+- Stable searchable selectors for large NAM/IR libraries
+- Preset-backed recovery when Stompbox omits NAM model metadata
+- Follow/manual synchronization modes
+- Connection, XRUN, MIDI, interface and latency status
+- Shared OLED state without extra Stompbox polling
+- Raw and parsed diagnostic endpoints
 
-Browser  
-→ HTTP (JSON)  
-→ namnesis-ui-gateway  
-→ TCP  
-→ Stompbox  
+## Requirements
 
-All state remains inside Stompbox.
+- Go 1.24.4 or the version declared in `go.mod`
+- Stompbox TCP control server
+- A trusted LAN/VPN; the gateway has no built-in authentication or TLS
 
----
+## Build
 
-## What This Project Is Not
+```bash
+go build -buildvcs=false ./cmd/namnesis-ui-gateway/
+```
 
-This project does **not** include:
+The frontend assets are committed. Node.js is required only when rebuilding Tailwind assets.
 
-- Stompbox
-- Neural Amp Modeler
-- Audio DSP
-- Plugin implementations
-- Any proprietary audio engine
+## Runtime configuration
 
-It is a control plane and UI layer only.
+The server is configured through environment variables, normally in `/etc/namnesis-ui-gateway.env`:
 
----
+```ini
+LISTEN_ADDR=0.0.0.0:3000
+STOMPBOX_HOST=127.0.0.1
+STOMPBOX_PORT=24639
+DIAL_TIMEOUT=1s
+READ_TIMEOUT=5s
+MAX_BYTES=2000000
+PROGRAM_POLL_INTERVAL=250ms
+CONFIG_REFRESH_INTERVAL=10m
+PRESET_REFRESH_INTERVAL=30s
+SSE_HEARTBEAT_INTERVAL=15s
+STOMPBOX_PRESET_DIRS=/opt/namnesis/Stompbox/build-current/Presets,/opt/namnesis/Stompbox/build/Presets
+ALLOWED_SUBNETS=192.168.1.0/24
+```
 
-## ⚠️ Live Usage Status
+Open `http://namnesis.local:3000/ui` after starting the service.
 
-The current Web UI is **not intended for real-time live performance control**.
+## Main endpoints
 
-Operations such as:
+```text
+GET  /api/state                 cached complete state
+GET  /api/events                SSE state-change stream
+POST /api/state/refresh         explicit program/config/preset refresh
+GET  /api/program               cached raw program (?fresh=1 bypasses cache)
+GET  /api/dumpconfig            cached raw config  (?fresh=1 bypasses cache)
+GET  /api/presets               cached preset list (?fresh=1 bypasses cache)
+GET  /api/system                host/JACK/MIDI observability
+```
 
-- Loading NAM models  
-- Loading cabinet IRs  
-- Enabling/disabling plugins  
-- Reordering plugins  
+## Realtime isolation
 
-may take up to **1–2 seconds** to fully apply and reflect in the UI.
+The gateway is not a realtime process. On the NAMNESIS host it should remain on the operating-system cores, outside the isolated JACK/Stompbox DSP set. For the current 6-core layout, use `CPUAffinity=0 1 2 3` in the gateway service while JACK, Stompbox and the USB audio IRQ remain on cores 4–5.
 
-At this stage, the UI should be considered:
+## Safety and security
 
-- A preset creation and sound design tool  
-- A development interface  
-- A control and observability layer  
-
-Once presets are stored inside Stompbox, preset switching via **MIDI remains fast and suitable for live use**, as it is handled directly by Stompbox and bypasses the Web UI polling layer.
-
----
-
-## Screenshots
-
-### Main Interface
-
-| Desktop | Mobile |
-|----------|---------|
-| <img src="docs/images/desktop.png" width="900"/> | <img src="docs/images/mobile.png" width="350"/> |
-
----
-
-## Future Work
-
-Improving responsiveness is a planned area of development.
-
-Possible improvements include:
-
-- Increasing UI polling frequency in a dedicated "Live Mode"
-- Introducing push-based state updates instead of polling
-- Reducing DSP reinitialization where possible
-- Implementing preloading and caching strategies for NAM and IR assets
-- Differentiating clearly between Edit Mode and Performance Mode
-
-The goal is to reduce perceived latency while preserving:
-
-- Stability
-- Audio integrity
-- Deterministic execution
-
----
-
-## Philosophy
-
-The gateway is intentionally:
-
-- Thin  
-- Explicit  
-- Protocol-faithful  
-- Deterministic  
-
-It does not reinterpret Stompbox.  
-It does not maintain hidden state.  
-It forwards commands and parses responses.
-
-The DSP domain remains untouched.
-
----
-
-## Features
-
-- Load / Save / Delete presets
-- Modify parameters
-- Reorder plugins
-- Load new plugins
-- Select NAM models and cabinets
-- Select ConvoReverb IRs
-- Live and Research modes (UI behavior control)
-- Optional `/api/system` observability
-
----
-
-## Quick Start
-
-Build:
-
-    go build ./cmd/namnesis-ui-gateway
-
-Run:
-
-    ./namnesis-ui-gateway -stompbox 127.0.0.1:5555 -listen :3000
-
-Open Web UI:
-
-    http://localhost:3000/ui
-
-API base:
-
-    http://localhost:3000/api/
-
-Common API Endpoints
-
-    GET  /api/program
-    GET  /api/system
-    GET  /api/dumpconfig
-    GET  /api/debug/config-parsed
-
-All endpoints return JSON.
+The Stompbox control protocol has no authentication or encryption. Do not expose the gateway directly to the public Internet. Use the existing subnet allowlist, a firewall and a VPN/reverse proxy where remote access is required.
 
 ## Documentation
 
-- docs/INSTALL.md  
-- docs/CONFIG.md  
-- docs/PROTOCOL.md  
+- `docs/ROADMAP.md` — prioritized next improvements
+- `docs/INSTALL.md` — deployment and rollback
+- `docs/CONFIG.md` — environment and observability configuration
+- `docs/PROTOCOL.md` — Stompbox protocol notes
 
----
+## License and attribution
 
-### Frontend Notes
-
-The generated `tailwind.css` file is committed to the repository.
-
-End users do not need Node.js or Tailwind to build or run the gateway.
-
-Node.js and Tailwind are only required if you want to modify or rebuild the UI styles.
-
-
-## Security
-
-This gateway:
-
-- Has no authentication  
-- Has no TLS  
-- Assumes trusted LAN or VPN  
-
-Do **not** expose directly to the public internet.
-
-Use a reverse proxy, firewall, or VPN if remote access is required.
-
----
-
-## Status
-
-Actively used in a dedicated hardware NAMNESIS system.
-
-Stable for preset creation and configuration workflows.  
-Live-optimized UI performance is under development.
-
----
-
-## License
-
-This project is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later).
-
-See the `LICENSE` file for details.
+GPL-3.0-or-later. Stompbox and its DSP architecture are the work of Mike Oliphant and remain separate from this gateway.
