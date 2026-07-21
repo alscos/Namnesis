@@ -102,3 +102,19 @@ Device names, JACK topology, MIDI names, and service names are deployment-specif
 ## Local-only files
 
 Do not commit machine-specific configuration or runtime state. The repository ignores `sysinfo.json`; keep hostnames, usernames, device identifiers, and local paths in deployment files outside Git.
+
+## Optional OLED bridge
+
+The serial OLED bridge is optional and disabled by default.
+
+```env
+OLED_ENABLED=false
+OLED_DEVICE=/dev/ttyNAMNESIS_OLED
+OLED_BAUD=115200
+OLED_INTERVAL=400ms
+```
+
+Set `OLED_ENABLED=true` only when the configured serial device is present.
+
+The OLED consumes the gateway's shared cached program snapshot. It does not
+create a separate Stompbox polling connection.

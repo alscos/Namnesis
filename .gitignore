@@ -10,7 +10,7 @@ npm-debug.log*
 .npx/
 
 # build artifacts
-namnesis-ui-gateway
+/namnesis-ui-gateway
 *.exe
 *.out
 *.log
@@ -20,7 +20,6 @@ namnesis-ui-gateway
 .idea/
 
 # --- Go build artifacts (if any leak locally) ---
-namnesis-ui-gateway
 sysinfo.json
 # Downloaded build tools (not part of the product)
 tools/

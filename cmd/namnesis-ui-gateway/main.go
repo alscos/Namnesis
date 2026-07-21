@@ -65,10 +65,21 @@ func main() {
 	defer cancel()
 	go state.Run(ctx)
 
-	// OLED reads the shared cached program snapshot. It no longer opens its own
-	// Dump Program TCP connection every 400 ms.
-	o := oled.NewOLEDSerial("/dev/ttyNAMNESIS_OLED", 115200)
-	go o.Start(ctx, state.ProgramRaw, 400*time.Millisecond)
+	// The optional OLED bridge reads the shared cached program snapshot.
+	// It never opens a separate Stompbox polling connection.
+	var o *oled.OLEDSerial
+	if cfg.OLEDEnabled {
+		o = oled.NewOLEDSerial(cfg.OLEDDevice, cfg.OLEDBaud)
+		go o.Start(ctx, state.ProgramRaw, cfg.OLEDInterval)
+		log.Printf(
+			"oled bridge enabled on %s at %d baud (interval %s)",
+			cfg.OLEDDevice,
+			cfg.OLEDBaud,
+			cfg.OLEDInterval,
+		)
+	} else {
+		log.Printf("oled bridge disabled")
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -81,7 +92,9 @@ func main() {
 		ctxTO, cancelTO := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancelTO()
 		_ = srv.Shutdown(ctxTO)
-		o.Close()
+		if o != nil {
+			o.Close()
+		}
 	}()
 
 	log.Printf(

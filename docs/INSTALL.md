@@ -173,3 +173,16 @@ sudo systemctl restart namnesis-ui-gateway
 ```
 
 Gateway upgrades do not migrate JACK, Stompbox, presets, NAM models, or impulse responses.
+
+## Touchscreen live interface
+
+The optional `/live` interface can be deployed as an automatic Firefox ESR
+kiosk on a local touchscreen.
+
+See:
+
+- `docs/LIVE_UI.md`
+- `deploy/kiosk/`
+- `systemd/20-cpu-affinity.conf.example`
+
+The complete desktop editor remains available at `/ui`.

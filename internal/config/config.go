@@ -22,6 +22,10 @@ type Config struct {
 	PresetRefreshInterval time.Duration
 	SSEHeartbeatInterval  time.Duration
 	PresetDirs            []string
+	OLEDEnabled           bool
+	OLEDDevice            string
+	OLEDBaud              int
+	OLEDInterval          time.Duration
 }
 
 func LoadFromEnv() Config {
@@ -40,6 +44,10 @@ func LoadFromEnv() Config {
 		PresetRefreshInterval: envDuration("PRESET_REFRESH_INTERVAL", 30*time.Second),
 		SSEHeartbeatInterval:  envDuration("SSE_HEARTBEAT_INTERVAL", 15*time.Second),
 		PresetDirs:            splitCSV(env("STOMPBOX_PRESET_DIRS", "/opt/namnesis/Stompbox/build-current/Presets,/opt/namnesis/Stompbox/build/Presets")),
+		OLEDEnabled:           envBool("OLED_ENABLED", false),
+		OLEDDevice:            env("OLED_DEVICE", "/dev/ttyNAMNESIS_OLED"),
+		OLEDBaud:              envInt("OLED_BAUD", 115200),
+		OLEDInterval:          envDuration("OLED_INTERVAL", 400*time.Millisecond),
 	}
 }
 
@@ -49,6 +57,19 @@ func env(key, def string) string {
 		return def
 	}
 	return v
+}
+
+func envBool(key string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 func envInt(key string, def int) int {

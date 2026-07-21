@@ -1,0 +1,16 @@
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.aboutConfig.showWarning", false);
+user_pref("browser.tabs.warnOnClose", false);
+user_pref("browser.tabs.warnOnOpen", false);
+user_pref("browser.fullscreen.autohide", true);
+user_pref("browser.startup.page", 0);
+user_pref("browser.startup.homepage", "http://127.0.0.1:3000/live");
+user_pref("browser.newtabpage.enabled", false);
+user_pref("browser.urlbar.suggest.searches", false);
+user_pref("browser.urlbar.suggest.history", false);
+user_pref("browser.urlbar.suggest.bookmark", false);
+user_pref("browser.urlbar.suggest.openpage", false);
+user_pref("toolkit.cosmeticAnimations.enabled", false);
+user_pref("ui.prefersReducedMotion", 1);
+user_pref("dom.w3c_touch_events.enabled", 1);

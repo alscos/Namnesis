@@ -1,0 +1,4 @@
+#!/bin/sh
+
+openbox-session &
+exec /opt/namnesis/kiosk/start-live-ui.sh

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  />
+  <meta name="theme-color" content="#05060a" />
+  <title>NAMNESIS Live</title>
+  <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/live.css" />
+</head>
+<body>
+  <div id="liveApp" class="live-shell" data-stream="connecting">
+    <aside class="identity-panel panel">
+      <div class="brand-row">
+        <img src="/static/img/logo.svg" alt="NAMNESIS" class="live-logo" />
+        <div class="brand-tools">
+          <span class="live-badge">LIVE</span>
+          <div class="preset-actions" aria-label="Preset actions">
+            <button id="savePresetButton" class="preset-action" type="button">Save</button>
+            <button id="saveAsPresetButton" class="preset-action is-primary" type="button">Save As</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="preset-block" aria-label="Current preset">
+        <div class="preset-number" id="presetNumber">—</div>
+        <div class="preset-copy">
+          <span class="micro-label">Preset</span>
+          <strong id="presetName">No preset loaded</strong>
+        </div>
+      </section>
+
+      <section class="model-block" aria-label="Model and cabinet">
+        <button id="namPickerButton" class="model-button" type="button">
+          <span class="model-copy">
+            <span class="micro-label">NAM</span>
+            <strong id="namModel">—</strong>
+          </span>
+          <span class="model-chevron" aria-hidden="true">›</span>
+        </button>
+        <button id="cabPickerButton" class="model-button" type="button">
+          <span class="model-copy">
+            <span class="micro-label">Cabinet</span>
+            <strong id="cabinetIR">—</strong>
+          </span>
+          <span class="model-chevron" aria-hidden="true">›</span>
+        </button>
+      </section>
+
+      <div class="connection-line">
+        <span id="streamDot" class="status-dot" aria-hidden="true"></span>
+        <span id="streamText">Connecting</span>
+      </div>
+    </aside>
+
+    <main class="performance-panel">
+      <section class="stomp-rack panel" aria-label="Live effects">
+        <div id="stompRack" class="stomp-grid"></div>
+      </section>
+
+      <section class="editor-panel panel" aria-label="Effect editor">
+        <header class="editor-header">
+          <div>
+            <span class="micro-label">Active editor</span>
+            <h1 id="editorTitle">Select an effect</h1>
+          </div>
+          <button
+            id="editorToggle"
+            class="editor-toggle"
+            type="button"
+            aria-pressed="false"
+            disabled
+          >
+            <span class="toggle-led"></span>
+            <span id="editorToggleText">OFF</span>
+          </button>
+        </header>
+
+        <div id="parameterGrid" class="parameter-grid">
+          <div class="editor-empty">Touch an effect above to expose its live controls.</div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="status-panel panel" aria-label="System status">
+      <section class="ready-block">
+        <span id="readyLamp" class="ready-lamp"></span>
+        <div>
+          <span class="micro-label">System</span>
+          <strong id="readyText">STARTING</strong>
+        </div>
+      </section>
+
+      <dl class="system-grid">
+        <div>
+          <dt>XRUN</dt>
+          <dd id="xrunValue">—</dd>
+        </div>
+        <div>
+          <dt>MIDI</dt>
+          <dd id="midiValue">—</dd>
+        </div>
+        <div>
+          <dt>Audio</dt>
+          <dd id="audioValue">—</dd>
+        </div>
+        <div>
+          <dt>State</dt>
+          <dd id="revisionValue">—</dd>
+        </div>
+      </dl>
+
+      <section class="global-levels">
+        <div class="global-level">
+          <span>Input</span>
+          <strong id="inputValue">—</strong>
+        </div>
+        <div class="global-level">
+          <span>Master</span>
+          <strong id="masterValue">—</strong>
+        </div>
+      </section>
+
+      <footer class="status-footer">
+        <span id="clockValue">--:--</span>
+        <span class="resolution-label">1920 × 440</span>
+      </footer>
+    </aside>
+  </div>
+
+
+  <section
+    id="libraryOverlay"
+    class="library-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="libraryTitle"
+    hidden
+  >
+    <header class="library-header">
+      <div class="library-heading">
+        <span id="libraryEyebrow" class="micro-label">Sound library</span>
+        <h2 id="libraryTitle">Select model</h2>
+      </div>
+      <div class="library-current">
+        <span class="micro-label">Current</span>
+        <strong id="libraryCurrent">—</strong>
+      </div>
+      <div class="library-count" id="libraryCount">0 results</div>
+      <button id="libraryClose" class="library-close" type="button">Close</button>
+    </header>
+
+    <div class="library-body">
+      <section class="library-search-panel" aria-label="Touch search">
+        <div id="libraryQuery" class="library-query" aria-live="polite">
+          <span class="library-query-placeholder">Touch keys to filter</span>
+        </div>
+        <div id="libraryKeyboard" class="library-keyboard"></div>
+      </section>
+
+      <section class="library-results-panel">
+        <div id="libraryResults" class="library-results"></div>
+      </section>
+    </div>
+  </section>
+
+  <script defer src="/static/api.js"></script>
+  <script defer src="/static/parse.js"></script>
+  <script defer src="/static/live.js"></script>
+</body>
+</html>

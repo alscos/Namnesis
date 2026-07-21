@@ -157,3 +157,48 @@ GPL-3.0-or-later. Stompbox and its DSP architecture are the work of Mike Oliphan
   </tr>
 </table>
 
+## User interfaces
+
+NAMNESIS provides two browser interfaces:
+
+- `/ui` — complete desktop editor and configuration interface
+- `/live` — fixed touch-first performance interface
+
+See [`docs/LIVE_UI.md`](docs/LIVE_UI.md) for touchscreen and kiosk deployment.
+
+<!-- LIVE_UI_SCREENSHOTS_START -->
+
+### Live performance interface
+
+<p align="center">
+  <img src="docs/images/live-ui-performance.png"
+       alt="NAMNESIS Live UI performance screen with fixed effects rack and contextual editor"
+       width="100%">
+</p>
+
+<p align="center"><em>
+Performance view: current preset, NAM model, cabinet, twelve fixed stomp slots,
+context-sensitive parameter editing and system status.
+</em></p>
+
+<p align="center">
+  <img src="docs/images/live-ui-model-browser.png"
+       alt="NAMNESIS Live UI touch browser for selecting Neural Amp Modeler files"
+       width="100%">
+</p>
+
+<p align="center"><em>
+Touch-first NAM model browser with integrated search keyboard.
+</em></p>
+
+<p align="center">
+  <img src="docs/images/live-ui-save-as.png"
+       alt="NAMNESIS Live UI Save As screen with touch keyboard"
+       width="100%">
+</p>
+
+<p align="center"><em>
+Preset Save As workflow using the same full-screen touch keyboard.
+</em></p>
+
+<!-- LIVE_UI_SCREENSHOTS_END -->

@@ -1,0 +1,17 @@
+# Start the NAMNESIS touchscreen only from the physical tty1 console.
+# SSH sessions never launch or interfere with Xorg.
+if [ -z "${SSH_CONNECTION:-}" ] &&
+   [ "$(tty 2>/dev/null)" = "/dev/tty1" ] &&
+   [ -z "${DISPLAY:-}" ]; then
+
+  while [ ! -e /tmp/namnesis-kiosk-disable ]; do
+    taskset -c "${NAMNESIS_UI_CPUS:-0-3}" \
+      startx "$HOME/.xinitrc" -- \
+      :0 \
+      vt1 \
+      -keeptty \
+      -nolisten tcp
+
+    sleep 2
+  done
+fi

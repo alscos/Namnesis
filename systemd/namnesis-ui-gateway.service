@@ -1,0 +1,22 @@
+[Unit]
+Description=NAMNESIS UI Gateway
+After=network-online.target stompbox.service jackd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=namnesis
+Group=namnesis
+EnvironmentFile=/etc/namnesis-ui-gateway.env
+WorkingDirectory=/opt/namnesis/namnesis-ui-gateway
+ExecStart=/usr/local/bin/namnesis-ui-gateway
+Restart=always
+RestartSec=1
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

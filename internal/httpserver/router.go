@@ -76,6 +76,12 @@ func NewRouter(deps RouterDeps) (http.Handler, error) {
 	r.Post("/api/state/refresh", s.handleStateRefresh)
 	r.Get("/api/system", s.handleSystem)
 	r.Get("/ui", s.handleUIPage)
+	r.Get("/live", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := s.tpl.ExecuteTemplate(w, "live.html", nil); err != nil {
+			http.Error(w, "render live UI", http.StatusInternalServerError)
+		}
+	})
 	r.Get("/api/preset/current", s.handlePresetCurrent)
 	r.Get("/api/preset/human", s.handlePresetHuman)
 	r.Post("/api/preset/load", s.handlePresetLoad)
