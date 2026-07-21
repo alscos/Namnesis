@@ -1102,6 +1102,70 @@ button { color: inherit; }
   cursor: default;
 }
 
+/* Synthetic NONE/BYPASS entry for the NAM and Cabinet libraries. */
+
+.library-result.is-bypass {
+  grid-column: 1 / -1;
+  min-height: 62px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  border-color: rgba(245, 196, 81, 0.34);
+  background:
+    linear-gradient(90deg, rgba(245, 196, 81, 0.12), transparent 58%),
+    #101117;
+  box-shadow:
+    0 7px 14px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(13, 15, 22, 0.9);
+}
+
+.library-result.is-bypass:active {
+  border-color: rgba(245, 196, 81, 0.72);
+  background: rgba(245, 196, 81, 0.16);
+}
+
+.library-result.is-bypass[data-current="true"] {
+  border-color: rgba(53, 229, 138, 0.56);
+  background:
+    linear-gradient(90deg, rgba(53, 229, 138, 0.14), transparent 58%),
+    #0d1413;
+}
+
+.library-bypass-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.library-result .library-bypass-copy strong {
+  overflow: hidden;
+  color: #f7ce72;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-result.is-bypass[data-current="true"] .library-bypass-copy strong {
+  color: #74f2aa;
+}
+
+.library-result .library-bypass-copy small {
+  overflow: hidden;
+  color: #8f95a6;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* NAMNESIS touch-only cursor suppression */
 html,

@@ -48,6 +48,8 @@
     fileTrees: {},
     resolved: null,
     selectedPlugin: null,
+    pendingParams: new Map(),
+    activeParamKey: null,
     library: {
       kind: null,
       query: "",
@@ -230,6 +232,50 @@
     return number.toFixed(digits);
   }
 
+  function parameterKey(plugin, param) {
+    return `${plugin}::${param}`;
+  }
+
+  function valuesMatch(actual, expected, step) {
+    const left = Number(actual);
+    const right = Number(expected);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+
+    const numericStep = Number(step);
+    const tolerance = Number.isFinite(numericStep) && numericStep > 0
+      ? Math.max(numericStep * 0.51, 1e-6)
+      : 1e-6;
+
+    return Math.abs(left - right) <= tolerance;
+  }
+
+  function holdPendingParam(plugin, param, value, step) {
+    state.pendingParams.set(parameterKey(plugin, param), {
+      plugin,
+      param,
+      value: Number(value),
+      step: Number(step),
+      expiresAt: Date.now() + 5000,
+    });
+  }
+
+  function effectiveParamValue(plugin, param, fallback) {
+    const pending = state.pendingParams.get(parameterKey(plugin, param));
+    return pending ? pending.value : fallback;
+  }
+
+  function reconcilePendingParams() {
+    const now = Date.now();
+
+    for (const [key, pending] of state.pendingParams) {
+      const actual = state.program?.params?.[pending.plugin]?.[pending.param];
+
+      if (valuesMatch(actual, pending.value, pending.step) || now >= pending.expiresAt) {
+        state.pendingParams.delete(key);
+      }
+    }
+  }
+
   function selectDefaultPlugin(slots) {
     const available = slots.map(slot => slot.plugin).filter(Boolean);
     if (state.selectedPlugin && available.includes(state.selectedPlugin)) return;
@@ -256,8 +302,10 @@
 
     const nam = findPlugin("NAM");
     const cabinet = findPlugin("Cabinet");
-    els.namModel.textContent = resolvedValue(nam, "Model") || "—";
-    els.cabinetIR.textContent = resolvedValue(cabinet, "Impulse") || "—";
+    els.namModel.textContent =
+      isEnabled(nam) ? resolvedValue(nam, "Model") || "—" : "NONE — BYPASSED";
+    els.cabinetIR.textContent =
+      isEnabled(cabinet) ? resolvedValue(cabinet, "Impulse") || "—" : "NONE — BYPASSED";
 
     const input = Number(state.program?.params?.Input?.Gain);
     const master = Number(state.program?.params?.Master?.Volume);
@@ -380,10 +428,12 @@
       state.paramMeta?.[base]?.[name] ||
       {};
 
-    const value = Number(rawValue);
+    const stateValue = Number(rawValue);
+    const value = Number(effectiveParamValue(plugin, name, stateValue));
     const min = Number.isFinite(meta.min) ? meta.min : Math.min(0, value);
     const max = Number.isFinite(meta.max) ? meta.max : Math.max(1, value);
     const step = Number.isFinite(meta.step) && meta.step > 0 ? meta.step : 0.01;
+    const key = parameterKey(plugin, name);
 
     const row = document.createElement("div");
     row.className = "parameter";
@@ -404,25 +454,50 @@
     output.value = formatNumber(value, meta);
     output.textContent = output.value;
 
+    slider.addEventListener("pointerdown", () => {
+      state.activeParamKey = key;
+    });
+
     slider.addEventListener("input", () => {
-      output.value = formatNumber(slider.value, meta);
+      const nextValue = Number(slider.value);
+      holdPendingParam(plugin, name, nextValue, step);
+      output.value = formatNumber(nextValue, meta);
       output.textContent = output.value;
     });
 
-    let lastSent = slider.value;
+    let lastSent = String(value);
+
     const commit = async () => {
-      if (slider.value === lastSent) return;
-      lastSent = slider.value;
+      const nextRaw = slider.value;
+      const nextValue = Number(nextRaw);
+      state.activeParamKey = null;
+
+      if (nextRaw === lastSent) {
+        scheduleRefresh();
+        return;
+      }
+
+      lastSent = nextRaw;
+      holdPendingParam(plugin, name, nextValue, step);
+
       try {
-        await A.setNumericParamQueued(plugin, name, Number(slider.value));
+        await A.setNumericParamQueued(plugin, name, nextValue);
+        scheduleRefresh();
       } catch (error) {
         console.error(error);
+        state.pendingParams.delete(key);
+        renderEditor();
         setStreamStatus("offline");
       }
     };
 
     slider.addEventListener("change", commit);
     slider.addEventListener("pointerup", commit);
+    slider.addEventListener("pointercancel", () => {
+      state.activeParamKey = null;
+      scheduleRefresh();
+    });
+
     row.append(label, slider, output);
     return row;
   }
@@ -470,7 +545,12 @@
     if (!state.snapshot) return;
     renderIdentity();
     renderStomps();
-    renderEditor();
+
+    // Replacing the slider DOM while a finger is down would terminate the
+    // gesture. Pending values also protect the editor from stale cache echoes.
+    if (!state.activeParamKey) {
+      renderEditor();
+    }
   }
 
   async function refreshState() {
@@ -484,6 +564,7 @@
       state.paramMeta = P.parseParameterConfig(data.dumpConfig?.raw || "");
       state.fileTrees = P.parseFileTrees(data.dumpConfig?.raw || "");
       state.resolved = data.program?.resolved || {};
+      reconcilePendingParams();
       renderAll();
       return data;
     })();
@@ -570,28 +651,42 @@
 
     if (kind === "nam") {
       const plugin = findPlugin("NAM");
+      const enabled = isEnabled(plugin);
+      const currentFile = resolvedValue(plugin, "Model");
+
       return {
         title: "Select NAM model",
         plugin,
         param: "Model",
+        enabled,
+        currentFile,
+        current: enabled ? currentFile : "NONE — BYPASSED",
+        bypassTitle: "NONE / BYPASS NAM",
+        bypassNote: "Disable amplifier modelling and keep the selected model ready.",
         options:
           state.fileTrees[`${plugin}.Model`] ||
           state.fileTrees["NAM.Model"] ||
           [],
-        current: resolvedValue(plugin, "Model"),
       };
     }
 
     const plugin = findPlugin("Cabinet");
+    const enabled = isEnabled(plugin);
+    const currentFile = resolvedValue(plugin, "Impulse");
+
     return {
       title: "Select cabinet IR",
       plugin,
       param: "Impulse",
+      enabled,
+      currentFile,
+      current: enabled ? currentFile : "NONE — BYPASSED",
+      bypassTitle: "NONE / BYPASS CABINET",
+      bypassNote: "Disable cabinet convolution and keep the selected IR ready.",
       options:
         state.fileTrees[`${plugin}.Impulse`] ||
         state.fileTrees["Cabinet.Impulse"] ||
         [],
-      current: resolvedValue(plugin, "Impulse"),
     };
   }
 
@@ -674,15 +769,53 @@
     }
   }
 
-  async function chooseLibraryValue(definition, value, button) {
-    if (state.library.busy || value === definition.current) return;
+  async function chooseLibraryBypass(definition, button) {
+    if (state.library.busy) return;
+
+    if (!definition.enabled) {
+      closeLibrary();
+      return;
+    }
 
     state.library.busy = true;
     button.disabled = true;
-    els.libraryCount.textContent = "Loading…";
+    els.libraryCount.textContent = "Bypassing…";
 
     try {
-      await A.setFileParam(definition.plugin, definition.param, value);
+      await A.setPluginEnabled(definition.plugin, false);
+      await refreshState();
+      closeLibrary();
+    } catch (error) {
+      console.error(error);
+      state.library.busy = false;
+      button.disabled = false;
+      els.libraryCount.textContent = "Bypass failed";
+      setStreamStatus("offline");
+    }
+  }
+
+  async function chooseLibraryValue(definition, value, button) {
+    if (state.library.busy) return;
+
+    const sameFile = value === definition.currentFile;
+    if (sameFile && definition.enabled) {
+      closeLibrary();
+      return;
+    }
+
+    state.library.busy = true;
+    button.disabled = true;
+    els.libraryCount.textContent = definition.enabled ? "Loading…" : "Enabling…";
+
+    try {
+      if (!sameFile) {
+        await A.setFileParam(definition.plugin, definition.param, value);
+      }
+
+      if (!definition.enabled) {
+        await A.setPluginEnabled(definition.plugin, true);
+      }
+
       await refreshState();
       closeLibrary();
     } catch (error) {
@@ -773,12 +906,30 @@
     const options = filteredLibraryOptions(definition);
     els.libraryResults.classList.remove("is-save-as");
     els.libraryResults.replaceChildren();
-    els.libraryCount.textContent = `${options.length} result${options.length === 1 ? "" : "s"}`;
+    els.libraryCount.textContent =
+      `${options.length} model${options.length === 1 ? "" : "s"} + bypass`;
+
+    const bypass = document.createElement("button");
+    bypass.type = "button";
+    bypass.className = "library-result is-bypass";
+    bypass.dataset.current = String(!definition.enabled);
+    bypass.innerHTML = `
+      <span class="library-bypass-copy">
+        <strong>${definition.bypassTitle}</strong>
+        <small>${definition.bypassNote}</small>
+      </span>
+      <span class="library-result-marker">✓</span>
+    `;
+    bypass.addEventListener(
+      "click",
+      () => chooseLibraryBypass(definition, bypass),
+    );
+    els.libraryResults.appendChild(bypass);
 
     if (!options.length) {
       const empty = document.createElement("div");
       empty.className = "library-empty-results";
-      empty.textContent = "No matches. Clear the filter or try fewer letters.";
+      empty.textContent = "No model matches. Bypass remains available above.";
       els.libraryResults.appendChild(empty);
       return;
     }
@@ -789,12 +940,17 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = "library-result";
-      button.dataset.current = String(option === definition.current);
+      button.dataset.current = String(
+        definition.enabled && option === definition.currentFile,
+      );
       button.innerHTML = `
         <span>${option}</span>
         <span class="library-result-marker">✓</span>
       `;
-      button.addEventListener("click", () => chooseLibraryValue(definition, option, button));
+      button.addEventListener(
+        "click",
+        () => chooseLibraryValue(definition, option, button),
+      );
       fragment.appendChild(button);
     }
 
