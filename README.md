@@ -32,25 +32,6 @@ Built on top of Stompbox, the project currently provides:
 The gateway communicates exclusively through Stompbox's existing TCP control
 protocol and requires an already running Stompbox instance.
 
----
-
-## Built on Stompbox
-
-This project builds upon
-[Stompbox](https://github.com/mikeoliphant/stompbox), the open-source
-real-time guitar processor created by **Mike Oliphant**.
-
-Stompbox provides the underlying:
-
-- Real-time audio engine
-- Effects framework
-- Neural Amp Modeler integration
-- TCP control protocol
-- Preset format
-
-NAMNESIS UI Gateway extends Stompbox with a modern browser interface,
-touch-oriented performance workflows and additional integration tools, while
-keeping the underlying DSP architecture unchanged.
 
 ## v0.4.2 architecture
 
