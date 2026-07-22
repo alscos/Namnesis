@@ -158,21 +158,30 @@ JACK and Stompbox
 The kiosk launcher waits for `/api/state` before starting Firefox, preventing
 the interface from opening against an incomplete gateway bootstrap.
 
-## CPU isolation
+## CPU affinity
 
-Graphical and gateway processes should remain outside dedicated real-time
-DSP cores.
+The gateway and graphical kiosk can be kept away from CPU cores assigned to
+real-time audio.
 
-Example for a six-core system:
+The included examples use the following arrangement on the six-core reference
+system:
 
 ```text
-Cores 0–3: operating system, gateway, Xorg, Openbox, Firefox
-Cores 4–5: JACK, Stompbox and real-time audio work
+Cores 0–3: gateway, Xorg, Openbox and Firefox
+Cores 4–5: JACK and Stompbox
 ```
 
-The included systemd drop-in and console profile snippet demonstrate this
-arrangement.
+The relevant deployment files are:
 
+- `systemd/20-cpu-affinity.conf.example` — constrains the gateway with
+  systemd's `CPUAffinity` setting.
+- `deploy/kiosk/bash-profile.snippet` — starts the Xorg kiosk through
+  `taskset`, using `NAMNESIS_UI_CPUS`, which defaults to `0-3`.
+
+These CPU ranges are examples for the reference machine and should be adapted
+to the target hardware and audio configuration.
+
+For broader platform guidance, see [`HARDWARE.md`](HARDWARE.md).
 ## Touch mapping
 
 The launcher maps the configured USB touchscreen to the configured display:

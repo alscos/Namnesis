@@ -166,6 +166,8 @@ NAMNESIS provides two browser interfaces:
 
 See [`docs/LIVE_UI.md`](docs/LIVE_UI.md) for touchscreen and kiosk deployment.
 
+Platform and component guidance is documented in [`docs/HARDWARE.md`](docs/HARDWARE.md).
+
 <!-- LIVE_UI_SCREENSHOTS_START -->
 
 ### Live performance interface

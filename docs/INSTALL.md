@@ -186,3 +186,5 @@ See:
 - `systemd/20-cpu-affinity.conf.example`
 
 The complete desktop editor remains available at `/ui`.
+
+Hardware-selection and platform notes are available in [`docs/HARDWARE.md`](HARDWARE.md).

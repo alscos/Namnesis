@@ -47,7 +47,9 @@
     paramMeta: null,
     fileTrees: {},
     resolved: null,
-    selectedPlugin: null,
+    selectedController: null,
+    stompPage: 0,
+    stompPresetKey: null,
     pendingParams: new Map(),
     activeParamKey: null,
     library: {
@@ -78,20 +80,25 @@
     Level: ["Volume"],
   };
 
-  const LIVE_SLOTS = [
-    { name: "BOOST",   color: "#42d667", knobs: 2, preferred: ["Boost_2", "Boost"] },
-    { name: "DRIVE",   color: "#ff4454", knobs: 3, preferred: ["Screamer_2", "Screamer"] },
-    { name: "DELAY",   color: "#438cff", knobs: 4, preferred: ["Delay_2", "Delay"] },
-    { name: "REVERB",  color: "#2ed6d3", knobs: 6, preferred: ["ConvoReverb_2", "ConvoReverb", "Reverb_2", "Reverb"] },
-    { name: "COMP",    color: "#ffb51b", knobs: 4, preferred: ["Compressor_2", "Compressor"] },
-    { name: "GATE",    color: "#f59e0b", knobs: 4, preferred: ["NoiseGate_2", "NoiseGate", "SimpleGate_2", "SimpleGate"] },
-    { name: "LEVEL",   color: "#e5e7eb", knobs: 1, preferred: ["Level", "Level_2"] },
-    { name: "FUZZ",    color: "#ef5ee8", knobs: 3, preferred: ["Fuzz_2", "Fuzz"] },
-    { name: "PHASE",   color: "#ff8a2d", knobs: 3, preferred: ["Phase90Script", "Phase90Script_2", "Phaser_2", "Phaser"] },
-    { name: "CHORUS",  color: "#27c6c7", knobs: 3, preferred: ["Chorus_2", "Chorus"] },
-    { name: "TREMOLO", color: "#b45cff", knobs: 3, preferred: ["Tremolo_2", "Tremolo"] },
-    { name: "VIBRATO", color: "#ff68bd", knobs: 3, preferred: ["Vibrato_2", "Vibrato"] },
-  ];
+  const STOMP_PAGE_SIZE = 12;
+
+  const STOMP_STYLES = {
+    Boost:         { name: "BOOST",   color: "#42d667", knobs: 2 },
+    Screamer:      { name: "DRIVE",   color: "#ff4454", knobs: 3 },
+    Delay:         { name: "DELAY",   color: "#438cff", knobs: 4 },
+    ConvoReverb:   { name: "REVERB",  color: "#2ed6d3", knobs: 6 },
+    Reverb:        { name: "REVERB",  color: "#2ed6d3", knobs: 5 },
+    Compressor:    { name: "COMP",    color: "#ffb51b", knobs: 4 },
+    NoiseGate:     { name: "GATE",    color: "#f59e0b", knobs: 4 },
+    SimpleGate:    { name: "GATE",    color: "#f59e0b", knobs: 3 },
+    Level:         { name: "LEVEL",   color: "#e5e7eb", knobs: 1 },
+    Fuzz:          { name: "FUZZ",    color: "#ef5ee8", knobs: 3 },
+    Phase90Script: { name: "PHASE",   color: "#ff8a2d", knobs: 3 },
+    Phaser:        { name: "PHASE",   color: "#ff8a2d", knobs: 3 },
+    Chorus:        { name: "CHORUS",  color: "#27c6c7", knobs: 3 },
+    Tremolo:       { name: "TREMOLO", color: "#b45cff", knobs: 3 },
+    Vibrato:       { name: "VIBRATO", color: "#ff68bd", knobs: 3 },
+  };
 
   const KEYBOARD_ROWS = [
     "1234567890-_",
@@ -180,36 +187,89 @@
     }) || baseName;
   }
 
-  function allRuntimePluginNames() {
-    return Array.from(new Set([
-      ...Object.keys(state.program?.params || {}),
-      ...Object.values(state.program?.slots || {}),
-      ...Object.values(state.program?.chains || {}).flat(),
-      ...Object.keys(state.resolved || {}),
-    ].filter(Boolean)));
-  }
+  function parseMappedStomps(raw) {
+    const mappings = new Map();
 
-  function resolveLiveSlot(slot) {
-    const names = allRuntimePluginNames();
+    for (const line of String(raw || "").split(/\r?\n/)) {
+      const match = line.match(
+        /^\s*MapController\s+(\d+)\s+(\S+)\s+(\S+)\s*$/,
+      );
+      if (!match) continue;
 
-    for (const preferred of slot.preferred) {
-      if (names.includes(preferred)) return preferred;
+      const controller = Number(match[1]);
+      const plugin = match[2];
+      const param = match[3];
+
+      if (
+        !Number.isInteger(controller) ||
+        controller < 1 ||
+        controller > 127 ||
+        param.toLowerCase() !== "enabled"
+      ) {
+        continue;
+      }
+
+      // A controller number has one effective mapping. Keep the final line,
+      // matching the way a later mapping supersedes an earlier one.
+      mappings.set(controller, { controller, plugin, param });
     }
 
-    for (const preferred of slot.preferred) {
-      const base = pluginBase(preferred);
-      const match = names.find(name => pluginBase(name) === base);
-      if (match) return match;
-    }
-
-    return null;
+    return Array.from(mappings.values())
+      .sort((left, right) => left.controller - right.controller);
   }
 
-  function getLivePlugins() {
-    return LIVE_SLOTS.map(slot => ({
-      ...slot,
-      plugin: resolveLiveSlot(slot),
-    }));
+  function loadedPluginNames() {
+    return new Set(
+      Object.values(state.program?.chains || {})
+        .flat()
+        .filter(Boolean),
+    );
+  }
+
+  function inferredKnobCount(plugin) {
+    const params = state.program?.params?.[plugin] || {};
+    const numeric = Object.entries(params).filter(([name, value]) => (
+      name !== "Enabled" &&
+      name !== "Model" &&
+      name !== "Impulse" &&
+      Number.isFinite(Number(value))
+    )).length;
+
+    return Math.max(1, Math.min(6, numeric || 3));
+  }
+
+  function stompStyle(plugin) {
+    const base = pluginBase(plugin);
+    const known = STOMP_STYLES[base];
+
+    return {
+      name: known?.name || friendlyPluginName(plugin).toUpperCase(),
+      color: known?.color || pluginColor(plugin),
+      knobs: known?.knobs || inferredKnobCount(plugin),
+    };
+  }
+
+  function getMappedStomps() {
+    const loaded = loadedPluginNames();
+
+    return parseMappedStomps(state.snapshot?.program?.raw || "")
+      .map(mapping => {
+        const style = stompStyle(mapping.plugin);
+        const isLoaded = loaded.has(mapping.plugin);
+
+        return {
+          ...mapping,
+          ...style,
+          loaded: isLoaded,
+          enabled: isLoaded && isEnabled(mapping.plugin),
+        };
+      });
+  }
+
+  function selectedStomp(stomps = getMappedStomps()) {
+    return stomps.find(
+      stomp => stomp.controller === state.selectedController,
+    ) || null;
   }
 
   function pluginColor(plugin) {
@@ -276,15 +336,25 @@
     }
   }
 
-  function selectDefaultPlugin(slots) {
-    const available = slots.map(slot => slot.plugin).filter(Boolean);
-    if (state.selectedPlugin && available.includes(state.selectedPlugin)) return;
+  function selectDefaultController(stomps) {
+    if (
+      state.selectedController !== null &&
+      stomps.some(stomp => stomp.controller === state.selectedController)
+    ) {
+      return;
+    }
 
-    state.selectedPlugin =
-      slots.find(slot => slot.plugin && pluginBase(slot.plugin) === "Phase90Script")?.plugin ||
-      available.find(isEnabled) ||
-      available[0] ||
+    const selected =
+      stomps.find(stomp => (
+        stomp.loaded &&
+        pluginBase(stomp.plugin) === "Phase90Script"
+      )) ||
+      stomps.find(stomp => stomp.loaded && stomp.enabled) ||
+      stomps.find(stomp => stomp.loaded) ||
+      stomps[0] ||
       null;
+
+    state.selectedController = selected?.controller ?? null;
   }
 
   function setStreamStatus(status) {
@@ -320,70 +390,134 @@
   }
 
   function renderStomps() {
-    const slots = getLivePlugins();
-    selectDefaultPlugin(slots);
+    const stomps = getMappedStomps();
+    const presetKey = String(state.program?.preset || "");
+
+    if (presetKey !== state.stompPresetKey) {
+      state.stompPresetKey = presetKey;
+      state.stompPage = 0;
+      state.selectedController = null;
+    }
+
+    const pageCount = Math.max(
+      1,
+      Math.ceil(stomps.length / STOMP_PAGE_SIZE),
+    );
+    state.stompPage = Math.min(
+      Math.max(0, state.stompPage),
+      pageCount - 1,
+    );
+
+    selectDefaultController(stomps);
     els.stompRack.replaceChildren();
 
-    for (const slot of slots) {
-      const plugin = slot.plugin;
-      const present = Boolean(plugin);
-      const enabled = present && isEnabled(plugin);
-      const selected = present && plugin === state.selectedPlugin;
+    if (!stomps.length) {
+      state.selectedController = null;
+      els.stompRack.dataset.paged = "false";
+      els.stompRack.style.setProperty("--stomp-columns", "1");
+      els.stompRack.style.setProperty("--stomp-max-width", "720px");
+
+      const empty = document.createElement("div");
+      empty.className = "stomp-rack-empty";
+      empty.innerHTML = `
+        <strong>NO STOMPS MAPPED</strong>
+        <span>This preset has no MapController … Enabled entries.</span>
+      `;
+      els.stompRack.appendChild(empty);
+      return;
+    }
+
+    const start = state.stompPage * STOMP_PAGE_SIZE;
+    const page = stomps.slice(start, start + STOMP_PAGE_SIZE);
+    const columnCount = Math.max(1, page.length);
+    const baseWidth = columnCount * 104 + Math.max(0, columnCount - 1) * 5;
+    const paged = pageCount > 1;
+
+    els.stompRack.dataset.paged = String(paged);
+    els.stompRack.style.setProperty(
+      "--stomp-columns",
+      String(columnCount),
+    );
+    els.stompRack.style.setProperty(
+      "--stomp-max-width",
+      `${baseWidth + (paged ? 64 : 0)}px`,
+    );
+
+    for (const stomp of page) {
+      const plugin = stomp.plugin;
+      const loaded = stomp.loaded;
+      const enabled = stomp.enabled;
+      const selected = stomp.controller === state.selectedController;
       const knobs = Array.from(
-        { length: slot.knobs },
+        { length: stomp.knobs },
         () => "<i></i>",
       ).join("");
 
       const tile = document.createElement("article");
       tile.className = "stomp";
       tile.dataset.enabled = String(enabled);
-      tile.dataset.present = String(present);
+      tile.dataset.present = String(loaded);
       tile.dataset.selected = String(selected);
-      tile.style.setProperty("--plugin-color", slot.color);
+      tile.dataset.controller = String(stomp.controller);
+      tile.style.setProperty("--plugin-color", stomp.color);
       tile.setAttribute(
         "aria-label",
-        present ? `${slot.name}: ${enabled ? "on" : "off"}` : `${slot.name} is unavailable`,
+        loaded
+          ? `Controller ${stomp.controller}, ${stomp.name}: ${enabled ? "on" : "off"}`
+          : `Controller ${stomp.controller}, ${plugin}: mapped but not loaded`,
       );
 
       const selectButton = document.createElement("button");
       selectButton.type = "button";
       selectButton.className = "stomp-select";
-      selectButton.disabled = !present;
+      selectButton.disabled = !loaded;
       selectButton.setAttribute(
         "aria-label",
-        present ? `Open ${slot.name} editor` : `${slot.name} is unavailable`,
+        loaded
+          ? `Open ${stomp.name} editor`
+          : `${plugin} is mapped but not loaded`,
       );
       selectButton.innerHTML = `
-        <span class="stomp-label">${slot.name}</span>
+        <span class="stomp-label">${stomp.name}</span>
         <span class="pedal-face" aria-hidden="true">
-          <span class="pedal-knobs knobs-${slot.knobs}">${knobs}</span>
+          <span class="controller-number">${stomp.controller}</span>
+          <span class="pedal-knobs knobs-${stomp.knobs}">${knobs}</span>
           <span class="pedal-footswitch"></span>
+          ${loaded ? "" : '<span class="pedal-warning">!</span>'}
         </span>
       `;
 
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "state-toggle";
-      toggle.disabled = !present;
+      toggle.disabled = !loaded;
       toggle.setAttribute("aria-pressed", String(enabled));
       toggle.setAttribute(
         "aria-label",
-        present ? `Turn ${slot.name} ${enabled ? "off" : "on"}` : `${slot.name} is unavailable`,
+        loaded
+          ? `Turn ${stomp.name} ${enabled ? "off" : "on"}`
+          : `${plugin} is not loaded in this preset`,
       );
-      toggle.innerHTML = '<span class="state-hex" aria-hidden="true"></span>';
+      toggle.innerHTML = loaded
+        ? '<span class="state-hex" aria-hidden="true"></span>'
+        : `
+          <span class="stomp-unloaded-state" aria-hidden="true">
+            <strong>!</strong>
+            <small>NOT LOADED</small>
+          </span>
+        `;
 
-      const select = () => {
-        if (!plugin) return;
-        state.selectedPlugin = plugin;
+      selectButton.addEventListener("click", () => {
+        if (!loaded) return;
+        state.selectedController = stomp.controller;
         renderStomps();
         renderEditor();
-      };
-
-      selectButton.addEventListener("click", select);
+      });
 
       toggle.addEventListener("click", async () => {
-        if (!plugin) return;
+        if (!loaded) return;
         toggle.disabled = true;
+
         try {
           await togglePlugin(plugin, !enabled);
         } catch (error) {
@@ -396,6 +530,63 @@
 
       tile.append(selectButton, toggle);
       els.stompRack.appendChild(tile);
+    }
+
+    const changePage = direction => {
+      const next = Math.min(
+        Math.max(0, state.stompPage + direction),
+        pageCount - 1,
+      );
+      if (next === state.stompPage) return;
+
+      state.stompPage = next;
+      const nextStart = next * STOMP_PAGE_SIZE;
+      const nextPage = stomps.slice(
+        nextStart,
+        nextStart + STOMP_PAGE_SIZE,
+      );
+      const nextSelected =
+        nextPage.find(stomp => stomp.loaded && stomp.enabled) ||
+        nextPage.find(stomp => stomp.loaded) ||
+        nextPage[0] ||
+        null;
+
+      state.selectedController = nextSelected?.controller ?? null;
+      renderStomps();
+      renderEditor();
+    };
+
+    if (state.stompPage > 0) {
+      const previous = document.createElement("button");
+      previous.type = "button";
+      previous.className = "stomp-page-button is-previous";
+      previous.setAttribute(
+        "aria-label",
+        `Show stomp page ${state.stompPage}`,
+      );
+      previous.textContent = "‹";
+      previous.addEventListener("click", () => changePage(-1));
+      els.stompRack.appendChild(previous);
+    }
+
+    if (state.stompPage < pageCount - 1) {
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "stomp-page-button is-next";
+      next.setAttribute(
+        "aria-label",
+        `Show stomp page ${state.stompPage + 2}`,
+      );
+      next.textContent = "›";
+      next.addEventListener("click", () => changePage(1));
+      els.stompRack.appendChild(next);
+    }
+
+    if (paged) {
+      const indicator = document.createElement("span");
+      indicator.className = "stomp-page-indicator";
+      indicator.textContent = `${state.stompPage + 1}/${pageCount}`;
+      els.stompRack.appendChild(indicator);
     }
   }
 
@@ -503,10 +694,14 @@
   }
 
   function renderEditor() {
-    const plugin = state.selectedPlugin;
+    const stomps = getMappedStomps();
+    selectDefaultController(stomps);
+
+    const stomp = selectedStomp(stomps);
+    const plugin = stomp?.plugin || null;
     els.parameterGrid.replaceChildren();
 
-    if (!plugin) {
+    if (!stomp || !plugin) {
       els.editorTitle.textContent = "Select an effect";
       els.editorToggle.disabled = true;
       els.editorToggle.setAttribute("aria-pressed", "false");
@@ -514,7 +709,25 @@
 
       const empty = document.createElement("div");
       empty.className = "editor-empty";
-      empty.textContent = "Touch an effect above to expose its live controls.";
+      empty.textContent =
+        stomps.length
+          ? "Touch a loaded stomp above to expose its live controls."
+          : "This preset has no mapped stomp controls.";
+      els.parameterGrid.appendChild(empty);
+      return;
+    }
+
+    if (!stomp.loaded) {
+      els.editorTitle.textContent = friendlyPluginName(plugin);
+      els.editorToggle.disabled = true;
+      els.editorToggle.setAttribute("aria-pressed", "false");
+      els.editorToggleText.textContent = "—";
+
+      const empty = document.createElement("div");
+      empty.className = "editor-empty is-warning";
+      empty.textContent =
+        `${plugin} is mapped to controller ${stomp.controller}, ` +
+        "but it is not loaded in any SetChain of this preset.";
       els.parameterGrid.appendChild(empty);
       return;
     }
@@ -537,7 +750,9 @@
     }
 
     for (const name of names) {
-      els.parameterGrid.appendChild(buildParameter(plugin, name, params[name]));
+      els.parameterGrid.appendChild(
+        buildParameter(plugin, name, params[name]),
+      );
     }
   }
 
@@ -1062,7 +1277,8 @@
   });
 
   els.editorToggle.addEventListener("click", async () => {
-    const plugin = state.selectedPlugin;
+    const stomp = selectedStomp();
+    const plugin = stomp?.loaded ? stomp.plugin : null;
     if (!plugin) return;
 
     const enabled = isEnabled(plugin);
