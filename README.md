@@ -6,9 +6,32 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # NAMNESIS UI Gateway
 
-NAMNESIS UI Gateway is the browser control plane for the NAMNESIS dedicated Neural Amp Modeler instrument. It translates HTTP requests into the textual Stompbox TCP control protocol and presents the current amplifier, cabinet, effects, preset and host status as a touch-friendly control surface.
+**NAMNESIS UI Gateway** is a modern web-based control interface for
+[Stompbox](https://github.com/mikeoliphant/stompbox), Mike Oliphant's
+open-source real-time guitar processor.
 
-It does **not** process audio and it does **not** own DSP state. Stompbox remains authoritative. The gateway keeps only an ephemeral, read-only mirror of Stompbox state so that every observer can share one synchronized control stream.
+It translates browser actions into Stompbox's TCP control protocol and exposes
+amplifier, cabinet, effects, presets and system status through a responsive,
+touch-friendly interface.
+
+The gateway does **not** process audio and does **not** own DSP state.
+Stompbox remains the sole authority for the audio engine and all processing
+state. The gateway simply maintains a lightweight synchronized view so that
+multiple clients can observe and control the same running instance.
+
+Built on top of Stompbox, the project currently provides:
+
+- Modern browser-based control interface
+- Dedicated touch-first Live UI
+- Real-time preset and parameter editing
+- Neural Amp Modeler and cabinet browsing
+- Preset management
+- Optional OLED status output
+- Kiosk deployment templates for dedicated touchscreens
+
+The gateway communicates exclusively through Stompbox's existing TCP control
+protocol and requires an already running Stompbox instance.
+
 
 ## v0.4.2 architecture
 
